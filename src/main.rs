@@ -51,7 +51,11 @@ struct ServerArgs {
 
 type CmdResponse<T> = sync::oneshot::Sender<T>;
 
+#[derive(Debug)]
 enum BargraphCmd {
+    Init {
+        resp: CmdResponse<Result<()>>
+    },
     SetLed {
         row: u8,
         col: u8,
@@ -97,55 +101,19 @@ fn main() -> Result<()> {
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), args.port);
             let server = ServerBuilder::default().build(socket).await?;
 
-            let (i2c_init_tx, i2c_init_rx) = sync::oneshot::channel();
-            let (i2c_req_tx, mut i2c_req_rx) = sync::mpsc::channel(16);
+            let (i2c_req_tx, i2c_req_rx) = sync::mpsc::channel(16);
 
             thread::spawn(move || {
-                let mut bargraph = match i2c_init(args.dev, 0x70) {
-                    Ok(b) => {
-                        if let Err(_) = i2c_init_tx.send(Ok(())) {
-                            return;
-                        }
-                        b
-                    },
-                    Err(e) => {
-                        let _ = i2c_init_tx.send(Err(e));
-                        return;
-                    }
-                };
-
-                loop {
-                    if let Some(r) = i2c_req_rx.blocking_recv() {
-                        match r {
-                            BargraphCmd::SetLed { row, col, resp} => {
-                                let res = bargraph.set_led(row, col, true);
-                                resp.send(res.map_err(|e| e.into()));
-                            },
-                            BargraphCmd::ClearLed { row, col, resp} => {
-                                let res = bargraph.set_led(row, col, false);
-                                resp.send(res.map_err(|e| e.into()));
-                            },
-                            BargraphCmd::StartBlink { resp } => {
-                                let res = bargraph.set_display(Display::HALF_HZ);
-                                resp.send(res.map_err(|e| e.into()));
-                            },
-                            BargraphCmd::StopBlink { resp } => {
-                                let res = bargraph.set_display(Display::ON);
-                                resp.send(res.map_err(|e| e.into()));
-                            },
-                        }
-                    } else {
-                        // Only happens if the req_rx channel has closed.
-                        break;
-                    }
-                }
+                bargraph_driver(args.dev, 0x70, i2c_req_rx)
             });
 
-            i2c_init_rx.await??;
+            let (resp,resp_rx) = sync::oneshot::channel();
+            i2c_req_tx.send(BargraphCmd::Init { resp } ).await?;
+            resp_rx.await??;
 
             let mut module = RpcModule::new(());
+            
             let req_tx = i2c_req_tx.clone();
-
             module.register_async_method("set_led", move|p, _| {
                 let req_tx = req_tx.clone();
                 let (resp,resp_rx) = sync::oneshot::channel();
@@ -189,6 +157,59 @@ fn main() -> Result<()> {
             server.start(module)?.stopped().await;
             Ok(())
         })
+}
+
+fn bargraph_driver(device: String, addr: u8, mut recv: sync::mpsc::Receiver<BargraphCmd>) {
+    let mut bargraph = if let Some(cmd) = recv.blocking_recv() {
+        if let BargraphCmd::Init { resp } = cmd {
+            match i2c_init(device, addr) {
+                Ok(b) => {
+                    if let Err(_) = resp.send(Ok(())) {
+                        return;
+                    }
+                    b
+                },
+                Err(e) => {
+                    let _ = resp.send(Err(e));
+                    return;
+                }
+            }        
+        } else {
+            return;
+        }
+    } else {
+        return;
+    };
+
+    
+    loop {
+        if let Some(r) = recv.blocking_recv() {
+            match r {
+                BargraphCmd::SetLed { row, col, resp} => {
+                    let res = bargraph.set_led(row, col, true);
+                    resp.send(res.map_err(|e| e.into()));
+                },
+                BargraphCmd::ClearLed { row, col, resp} => {
+                    let res = bargraph.set_led(row, col, false);
+                    resp.send(res.map_err(|e| e.into()));
+                },
+                BargraphCmd::StartBlink { resp } => {
+                    let res = bargraph.set_display(Display::HALF_HZ);
+                    resp.send(res.map_err(|e| e.into()));
+                },
+                BargraphCmd::StopBlink { resp } => {
+                    let res = bargraph.set_display(Display::ON);
+                    resp.send(res.map_err(|e| e.into()));
+                },
+                BargraphCmd::Init { resp, .. } => {
+                    resp.send(Ok(()));
+                }
+            }
+        } else {
+            // Only happens if the req_rx channel has closed.
+            break;
+        }
+    }
 }
 
 fn i2c_init(device: String, addr: u8) -> Result<Bargraph<I2cdev>> {
