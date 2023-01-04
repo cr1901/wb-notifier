@@ -1,14 +1,16 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::thread;
+use std::time::Duration;
 
 use argh::FromArgs;
 use config::Config;
 use directories::ProjectDirs;
 use eyre::{bail, eyre, Result};
+use ht16k33::Display;
 use jsonrpsee::server::{RpcModule, ServerBuilder, ServerHandle};
 use linux_embedded_hal::I2cdev;
 use serde::Deserialize;
-use tokio::{runtime, sync};
+use tokio::{runtime, sync, task, time};
 use wb_notifier::bargraph::{Bargraph, LedColor};
 
 #[derive(Deserialize, Hash)]
@@ -47,8 +49,25 @@ struct ServerArgs {
 
 }
 
+type CmdResponse<T> = sync::oneshot::Sender<T>;
+
 enum BargraphCmd {
-    SetLed(u8, u8)
+    SetLed {
+        row: u8,
+        col: u8,
+        resp: CmdResponse<Result<()>>
+    },
+    ClearLed {
+        row: u8,
+        col: u8,
+        resp: CmdResponse<Result<()>>
+    },
+    StartBlink {
+        resp: CmdResponse<Result<()>>
+    },
+    StopBlink {
+        resp: CmdResponse<Result<()>>
+    }
 }
 
 fn main() -> Result<()> {
@@ -98,12 +117,25 @@ fn main() -> Result<()> {
                 loop {
                     if let Some(r) = i2c_req_rx.blocking_recv() {
                         match r {
-                            BargraphCmd::SetLed(r, c) => {
-                                bargraph.set_led(r, c, true);
-                            }
+                            BargraphCmd::SetLed { row, col, resp} => {
+                                let res = bargraph.set_led(row, col, true);
+                                resp.send(res.map_err(|e| e.into()));
+                            },
+                            BargraphCmd::ClearLed { row, col, resp} => {
+                                let res = bargraph.set_led(row, col, false);
+                                resp.send(res.map_err(|e| e.into()));
+                            },
+                            BargraphCmd::StartBlink { resp } => {
+                                let res = bargraph.set_display(Display::HALF_HZ);
+                                resp.send(res.map_err(|e| e.into()));
+                            },
+                            BargraphCmd::StopBlink { resp } => {
+                                let res = bargraph.set_display(Display::ON);
+                                resp.send(res.map_err(|e| e.into()));
+                            },
                         }
-
                     } else {
+                        // Only happens if the req_rx channel has closed.
                         break;
                     }
                 }
@@ -116,10 +148,39 @@ fn main() -> Result<()> {
 
             module.register_async_method("set_led", move|p, _| {
                 let req_tx = req_tx.clone();
+                let (resp,resp_rx) = sync::oneshot::channel();
 
                 async move {
-                    let (r, c): (u8, u8) = p.parse()?;
-                    let _ = req_tx.send(BargraphCmd::SetLed(r, c)).await;
+                    let (row, col): (u8, u8) = p.parse()?;
+                    req_tx.send(BargraphCmd::SetLed { row, col, resp } ).await;
+                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
+
+                    task::spawn(async move {
+                        let (resp,resp_rx) = sync::oneshot::channel();
+                        req_tx.send(BargraphCmd::StartBlink { resp }).await;
+                        resp_rx.await;
+
+                        time::sleep(Duration::new(5, 0)).await;
+
+                        let (resp,resp_rx) = sync::oneshot::channel();
+                        req_tx.send(BargraphCmd::StopBlink { resp }).await;
+                        resp_rx.await;
+                    });
+
+
+                    Ok(())
+                }
+            })?;
+
+            let req_tx = i2c_req_tx.clone();
+            module.register_async_method("clear_led", move|p, _| {
+                let req_tx = req_tx.clone();
+                let (resp,resp_rx) = sync::oneshot::channel();
+
+                async move {
+                    let (row, col): (u8, u8) = p.parse()?;
+                    let _ = req_tx.send(BargraphCmd::ClearLed { row, col, resp } ).await;
+                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
 
                     Ok(())
                 }
