@@ -91,6 +91,12 @@ enum BlinkInfo {
     LedClear(u8),
 }
 
+#[derive(Clone, Copy)]
+enum ServerState {
+    Operating,
+    Shutdown
+}
+
 fn main() -> Result<()> {
     let args: ServerArgs = argh::from_env();
     let dirs = ProjectDirs::from("", "", "wb-notifier")
@@ -119,12 +125,16 @@ fn main() -> Result<()> {
             let server = ServerBuilder::default().build(socket).await?;
 
             let (i2c_req_tx, i2c_req_rx) = sync::mpsc::channel(16);
+            let (blink_req_tx, blink_req_rx) = sync::mpsc::channel(16);
+            let (error_resp_tx, mut error_resp_rx) = sync::mpsc::channel(16);
+            let (shutdown_req_tx, shutdown_req_rx) = sync::watch::channel(ServerState::Operating);
             thread::spawn(move || bargraph_driver(args.dev, 0x70, i2c_req_rx));
 
             let req_tx = i2c_req_tx.clone();
-            let (blink_req_tx, blink_req_rx) = sync::mpsc::channel(16);
+            let shutdown_rx = shutdown_req_rx.clone();
+            let err_tx = error_resp_tx.clone();
             task::spawn(async move {
-                blink_task(req_tx, blink_req_rx).await;
+                blink_task(req_tx, blink_req_rx, err_tx, shutdown_rx).await;
             });
 
             let (resp, resp_rx) = sync::oneshot::channel();
@@ -206,8 +216,20 @@ fn main() -> Result<()> {
                 }
             })?;
 
-            server.start(module)?.stopped().await;
-            Ok(())
+            let res = tokio::select! {
+                _ = server.start(module)?.stopped() => {
+                    // If error, then everything has already shut down.
+                    let _ = shutdown_req_tx.send(ServerState::Shutdown);
+                    Ok(())
+                },
+                e = error_resp_rx.recv() => {
+                    // If error, then everything has already shut down.
+                    let _ = shutdown_req_tx.send(ServerState::Shutdown);
+                    e.unwrap_or(Err(eyre!("error channel shutdown before receiving value")))
+                }
+            };
+
+            res
         })
 }
 
@@ -215,6 +237,8 @@ fn main() -> Result<()> {
 async fn blink_task(
     send: sync::mpsc::Sender<BargraphCmd>,
     mut recv: sync::mpsc::Receiver<BlinkInfo>,
+    err: sync::mpsc::Sender<Result<()>>,
+    shutdown: sync::watch::Receiver<ServerState>
 ) {
     loop {
         if let Some(bi) = recv.recv().await {
