@@ -30,6 +30,10 @@ pub enum BargraphCmd {
         color: LedColor,
         resp: CmdResponse<Result<()>>,
     },
+    SetBrightness {
+        pwm: Dimming,
+        resp: CmdResponse<Result<()>>,
+    },
     StartBlink {
         resp: CmdResponse<Result<()>>,
     },
@@ -266,6 +270,12 @@ impl BlockingEventLoop {
                     }
                     BargraphCmd::SetLedNo { num, color, resp } => {
                         let res = bargraph.set_led_no(num, color);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::SetBrightness { pwm, resp } => {
+                        let res = bargraph.set_dimming(pwm);
                         if let Err(_) = resp.send(res.map_err(|e| e.into())) {
                             return;
                         }

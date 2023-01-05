@@ -5,6 +5,7 @@ use argh::FromArgs;
 use config::Config;
 use directories::ProjectDirs;
 use eyre::{eyre, Result};
+use ht16k33::Dimming;
 use jsonrpsee::server::{RpcModule, ServerBuilder};
 use jsonrpsee::types::error::CallError;
 use serde::Deserialize;
@@ -84,10 +85,8 @@ fn main() -> Result<()> {
             let (shutdown_req_tx, shutdown_req_rx) = sync::watch::channel(ServerState::Operating);
             let (shutdown_complete_tx, mut shutdown_complete_rx) = sync::mpsc::channel::<()>(1);
 
-            let mut bargraph_evs = bargraph::tasks::BlockingEventLoop::new(
-                i2c_req_rx,
-                error_resp_tx.clone(),
-            );
+            let mut bargraph_evs =
+                bargraph::tasks::BlockingEventLoop::new(i2c_req_rx, error_resp_tx.clone());
             thread::spawn(move || bargraph_evs.run(args.dev, 0x70));
 
             let req_tx = i2c_req_tx.clone();
@@ -171,6 +170,64 @@ fn main() -> Result<()> {
                         }
                         LedColor::Off => blink_tx.send(BlinkInfo::LedClear(num)).await,
                     };
+
+                    Ok(())
+                }
+            })?;
+
+            let req_tx = i2c_req_tx.clone();
+            let blink_tx = blink_req_tx.clone();
+            module.register_async_method("set_brightness", move |p, _| {
+                let req_tx = req_tx.clone();
+                let blink_tx = blink_tx.clone();
+                let (resp, resp_rx) = sync::oneshot::channel();
+
+                async move {
+                    let pwm = match p.parse()? {
+                        1 => Dimming::BRIGHTNESS_1_16,
+                        2 => Dimming::BRIGHTNESS_2_16,
+                        3 => Dimming::BRIGHTNESS_3_16,
+                        4 => Dimming::BRIGHTNESS_4_16,
+                        5 => Dimming::BRIGHTNESS_5_16,
+                        6 => Dimming::BRIGHTNESS_6_16,
+                        7 => Dimming::BRIGHTNESS_7_16,
+                        8 => Dimming::BRIGHTNESS_8_16,
+                        9 => Dimming::BRIGHTNESS_9_16,
+                        10 => Dimming::BRIGHTNESS_10_16,
+                        11 => Dimming::BRIGHTNESS_11_16,
+                        12 => Dimming::BRIGHTNESS_12_16,
+                        13 => Dimming::BRIGHTNESS_13_16,
+                        14 => Dimming::BRIGHTNESS_14_16,
+                        15 => Dimming::BRIGHTNESS_15_16,
+                        16 => Dimming::BRIGHTNESS_16_16,
+                        e => {
+                            return Err(CallError::InvalidParams(anyhow::anyhow!(
+                                "expected integer between 1 and 16, got {}",
+                                e
+                            ))
+                            .into())
+                        }
+                    };
+
+                    let _ = req_tx.send(BargraphCmd::SetBrightness { pwm, resp }).await;
+                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
+                    blink_tx.send(BlinkInfo::LedClear(0)).await;
+
+                    Ok(())
+                }
+            })?;
+
+            let req_tx = i2c_req_tx.clone();
+            let blink_tx = blink_req_tx.clone();
+            module.register_async_method("reset", move |p, _| {
+                let req_tx = req_tx.clone();
+                let blink_tx = blink_tx.clone();
+                let (resp, resp_rx) = sync::oneshot::channel();
+
+                async move {
+                    let _ = req_tx.send(BargraphCmd::Init { resp }).await;
+                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
+                    blink_tx.send(BlinkInfo::LedClear(0)).await;
 
                     Ok(())
                 }
