@@ -1,4 +1,4 @@
-use std::{time::Duration, fmt, error};
+use std::{error, fmt, time::Duration};
 
 use eyre::Result;
 use ht16k33::{Dimming, Display};
@@ -55,7 +55,6 @@ pub struct BlinkTask {
     shutdown: sync::watch::Receiver<ServerState>,
     _shutdown_complete: sync::mpsc::Sender<()>,
 }
-
 
 #[derive(Clone, Copy)]
 pub enum BlinkInfo {
@@ -192,35 +191,33 @@ pub struct BlockingEventLoop {
 enum EventLoopError {
     CmdChannelClosed,
     InitNotCalledFirst,
-    InitFailure
+    InitFailure,
 }
 
 impl fmt::Display for EventLoopError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventLoopError::CmdChannelClosed => write!(f, "cmd channel was closed"),
-            EventLoopError::InitNotCalledFirst => write!(f, "event loop did not receive init command first"),
-            EventLoopError::InitFailure => write!(f, "init failure in driver")
+            EventLoopError::InitNotCalledFirst => {
+                write!(f, "event loop did not receive init command first")
+            }
+            EventLoopError::InitFailure => write!(f, "init failure in driver"),
         }
     }
 }
 
-impl error::Error for EventLoopError { }
+impl error::Error for EventLoopError {}
 
 impl BlockingEventLoop {
     pub fn new(
         cmd: sync::mpsc::Receiver<BargraphCmd>,
         err: sync::mpsc::Sender<Result<()>>,
     ) -> Self {
-        BlockingEventLoop {
-            cmd,
-            err
-        }
+        BlockingEventLoop { cmd, err }
     }
 
     pub fn run(&mut self, device: String, addr: u8) {
-        let mut bargraph =
-        match self.cmd.blocking_recv() {
+        let mut bargraph = match self.cmd.blocking_recv() {
             Some(BargraphCmd::Init { resp }) => {
                 match Self::init(device, addr) {
                     Ok(b) => {
@@ -235,24 +232,30 @@ impl BlockingEventLoop {
                     Err(e) => {
                         let _ = resp.send(Err(e));
                         // Initialization failure.
-                        let _ = self.err.blocking_send(Err(EventLoopError::InitFailure.into()));
+                        let _ = self
+                            .err
+                            .blocking_send(Err(EventLoopError::InitFailure.into()));
                         return;
                     }
                 }
-            },
+            }
             Some(_) => {
                 // Synchronization failure.
-                let _ = self.err.blocking_send(Err(EventLoopError::InitNotCalledFirst.into()));
+                let _ = self
+                    .err
+                    .blocking_send(Err(EventLoopError::InitNotCalledFirst.into()));
                 return;
-            },
+            }
             None => {
                 // If cmd channel is closed, we're already packing
                 // it in, so ignore.
-                let _ = self.err.blocking_send(Err(EventLoopError::CmdChannelClosed.into()));
+                let _ = self
+                    .err
+                    .blocking_send(Err(EventLoopError::CmdChannelClosed.into()));
                 return;
             }
         };
-    
+
         loop {
             if let Some(r) = self.cmd.blocking_recv() {
                 match r {
