@@ -149,7 +149,7 @@ fn main() -> Result<()> {
                     let color = match &*color_str {
                         "red" | "urgent" => LedColor::Red,
                         "yellow" | "error" => LedColor::Yellow,
-                        "green" | "ok" => LedColor::Green,
+                        "on" | "green" | "ok" => LedColor::Green,
                         "off" | "ack" | "clear" => LedColor::Off,
                         _ => {
                             return Err(CallError::InvalidParams(anyhow::anyhow!(

@@ -1,0 +1,10 @@
+[Unit]
+Description=Workbench Notifier Service
+After=network.target
+
+[Service]
+ExecStart=/home/wjones/.cargo/bin/wb-notifier /dev/i2c-1 -p 12000
+User=wjones
+
+[Install]
+WantedBy=multi-user.target
