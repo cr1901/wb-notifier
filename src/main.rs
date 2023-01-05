@@ -4,13 +4,16 @@ use std::thread;
 use argh::FromArgs;
 use config::Config;
 use directories::ProjectDirs;
-use eyre::{bail, eyre, Result};
-use jsonrpsee::server::{RpcModule, ServerBuilder, ServerHandle};
+use eyre::{eyre, Result};
+use jsonrpsee::server::{RpcModule, ServerBuilder};
 use jsonrpsee::types::error::CallError;
 use serde::Deserialize;
 use tokio::{runtime, sync, task};
 use wb_notifier::bargraph::driver::LedColor;
-use wb_notifier::bargraph::tasks::{bargraph_driver, blink_task, BargraphCmd, BlinkInfo};
+use wb_notifier::bargraph::{
+    self,
+    tasks::{blink_task, BargraphCmd, BlinkInfo},
+};
 use wb_notifier::server::ServerState;
 
 #[derive(Deserialize, Hash)]
@@ -79,7 +82,13 @@ fn main() -> Result<()> {
             let (blink_req_tx, blink_req_rx) = sync::mpsc::channel(16);
             let (error_resp_tx, mut error_resp_rx) = sync::mpsc::channel(16);
             let (shutdown_req_tx, shutdown_req_rx) = sync::watch::channel(ServerState::Operating);
-            thread::spawn(move || bargraph_driver(args.dev, 0x70, i2c_req_rx));
+            let (shutdown_complete_tx, mut shutdown_complete_rx) = sync::mpsc::channel::<()>(1);
+
+            let mut bargraph_evs = bargraph::tasks::BlockingEventLoop::new(
+                i2c_req_rx,
+                error_resp_tx.clone(),
+            );
+            thread::spawn(move || bargraph_evs.run(args.dev, 0x70));
 
             let req_tx = i2c_req_tx.clone();
             let shutdown_rx = shutdown_req_rx.clone();
@@ -180,6 +189,13 @@ fn main() -> Result<()> {
                 }
             };
 
+            // We want the blocking event loop to exit too; blocking_recv
+            // will return None to signal no more senders when all tasks have
+            // dropped.
+            drop(i2c_req_tx);
+
+            // Wait for everything to shut down.
+            shutdown_complete_rx.recv().await;
             res
         })
 }

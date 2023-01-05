@@ -1,12 +1,12 @@
-use std::time::Duration;
+use std::{time::Duration, fmt, error};
 
 use eyre::Result;
 use ht16k33::{Dimming, Display};
 use linux_embedded_hal::I2cdev;
 use tokio::{sync, time};
 
-use crate::server::ServerState;
 use super::driver::{Bargraph, LedColor};
+use crate::server::ServerState;
 
 type CmdResponse<T> = sync::oneshot::Sender<T>;
 
@@ -44,6 +44,15 @@ pub enum BargraphCmd {
     },
 }
 
+pub struct BlinkTask {
+    cmd: sync::mpsc::Sender<BargraphCmd>,
+    info: sync::mpsc::Receiver<BlinkInfo>,
+    err: sync::mpsc::Sender<Result<()>>,
+    shutdown: sync::watch::Receiver<ServerState>,
+    _shutdown_complete: sync::mpsc::Sender<()>,
+}
+
+
 #[derive(Clone, Copy)]
 pub enum BlinkInfo {
     LedSet(u8),
@@ -55,7 +64,7 @@ pub async fn blink_task(
     send: sync::mpsc::Sender<BargraphCmd>,
     mut recv: sync::mpsc::Receiver<BlinkInfo>,
     err: sync::mpsc::Sender<Result<()>>,
-    shutdown: sync::watch::Receiver<ServerState>
+    shutdown: sync::watch::Receiver<ServerState>,
 ) {
     loop {
         if let Some(bi) = recv.recv().await {
@@ -170,77 +179,143 @@ pub async fn blink_loop(
     resp_rx.await;
 }
 
-pub fn bargraph_driver(device: String, addr: u8, mut recv: sync::mpsc::Receiver<BargraphCmd>) {
-    let mut bargraph = if let Some(cmd) = recv.blocking_recv() {
-        if let BargraphCmd::Init { resp } = cmd {
-            match i2c_init(device, addr) {
-                Ok(b) => {
-                    if let Err(_) = resp.send(Ok(())) {
-                        return;
-                    }
-                    b
-                }
-                Err(e) => {
-                    let _ = resp.send(Err(e));
-                    return;
-                }
-            }
-        } else {
-            return;
-        }
-    } else {
-        return;
-    };
+pub struct BlockingEventLoop {
+    cmd: sync::mpsc::Receiver<BargraphCmd>,
+    err: sync::mpsc::Sender<Result<()>>,
+}
 
-    loop {
-        if let Some(r) = recv.blocking_recv() {
-            match r {
-                BargraphCmd::SetLed { row, col, resp } => {
-                    let res = bargraph.set_led(row, col, true);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::ClearLed { row, col, resp } => {
-                    let res = bargraph.set_led(row, col, false);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::SetLedNo { num, color, resp } => {
-                    let res = bargraph.set_led_no(num, color);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::StartBlink { resp } => {
-                    let res = bargraph.set_display(Display::TWO_HZ);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::MediumBlink { resp } => {
-                    let res = bargraph.set_display(Display::ONE_HZ);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::SlowBlink { resp } => {
-                    let res = bargraph.set_display(Display::HALF_HZ);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::StopBlink { resp } => {
-                    let res = bargraph.set_display(Display::ON);
-                    resp.send(res.map_err(|e| e.into()));
-                }
-                BargraphCmd::Init { resp, .. } => {
-                    resp.send(Ok(()));
-                }
-            }
-        } else {
-            // Only happens if the req_rx channel has closed.
-            break;
+#[derive(Copy, Clone, Debug)]
+enum EventLoopError {
+    CmdChannelClosed,
+    InitNotCalledFirst,
+    InitFailure
+}
+
+impl fmt::Display for EventLoopError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EventLoopError::CmdChannelClosed => write!(f, "cmd channel was closed"),
+            EventLoopError::InitNotCalledFirst => write!(f, "event loop did not receive init command first"),
+            EventLoopError::InitFailure => write!(f, "init failure in driver")
         }
     }
 }
 
-fn i2c_init(device: String, addr: u8) -> Result<Bargraph<I2cdev>> {
-    let mut i2c = I2cdev::new(device)?;
-    i2c.set_slave_address(addr as u16)?;
+impl error::Error for EventLoopError { }
 
-    let mut bargraph = Bargraph::new(i2c, addr);
-    bargraph.initialize()?;
-    bargraph.set_dimming(Dimming::BRIGHTNESS_3_16)?;
+impl BlockingEventLoop {
+    pub fn new(
+        cmd: sync::mpsc::Receiver<BargraphCmd>,
+        err: sync::mpsc::Sender<Result<()>>,
+    ) -> Self {
+        BlockingEventLoop {
+            cmd,
+            err
+        }
+    }
 
-    Ok(bargraph)
+    pub fn run(&mut self, device: String, addr: u8) {
+        let mut bargraph =
+        match self.cmd.blocking_recv() {
+            Some(BargraphCmd::Init { resp }) => {
+                match Self::init(device, addr) {
+                    Ok(b) => {
+                        if let Err(e) = resp.send(Ok(())) {
+                            // If err channel is closed, we're already packing
+                            // it in, so ignore.
+                            let _ = self.err.blocking_send(e);
+                            return;
+                        }
+                        b
+                    }
+                    Err(e) => {
+                        let _ = resp.send(Err(e));
+                        // Initialization failure.
+                        let _ = self.err.blocking_send(Err(EventLoopError::InitFailure.into()));
+                        return;
+                    }
+                }
+            },
+            Some(_) => {
+                // Synchronization failure.
+                let _ = self.err.blocking_send(Err(EventLoopError::InitNotCalledFirst.into()));
+                return;
+            },
+            None => {
+                // If cmd channel is closed, we're already packing
+                // it in, so ignore.
+                let _ = self.err.blocking_send(Err(EventLoopError::CmdChannelClosed.into()));
+                return;
+            }
+        };
+    
+        loop {
+            if let Some(r) = self.cmd.blocking_recv() {
+                match r {
+                    BargraphCmd::SetLed { row, col, resp } => {
+                        let res = bargraph.set_led(row, col, true);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::ClearLed { row, col, resp } => {
+                        let res = bargraph.set_led(row, col, false);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::SetLedNo { num, color, resp } => {
+                        let res = bargraph.set_led_no(num, color);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::StartBlink { resp } => {
+                        let res = bargraph.set_display(Display::TWO_HZ);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::MediumBlink { resp } => {
+                        let res = bargraph.set_display(Display::ONE_HZ);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::SlowBlink { resp } => {
+                        let res = bargraph.set_display(Display::HALF_HZ);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::StopBlink { resp } => {
+                        let res = bargraph.set_display(Display::ON);
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                    BargraphCmd::Init { resp, .. } => {
+                        let res = bargraph.initialize();
+                        if let Err(_) = resp.send(res.map_err(|e| e.into())) {
+                            return;
+                        }
+                    }
+                }
+            } else {
+                // Only happens if the req_rx channel has closed.
+                break;
+            }
+        }
+    }
+
+    fn init(device: String, addr: u8) -> Result<Bargraph<I2cdev>> {
+        let mut i2c = I2cdev::new(device)?;
+        i2c.set_slave_address(addr as u16)?;
+
+        let mut bargraph = Bargraph::new(i2c, addr);
+        bargraph.initialize()?;
+        bargraph.set_dimming(Dimming::BRIGHTNESS_3_16)?;
+
+        Ok(bargraph)
+    }
 }
