@@ -5,7 +5,7 @@ use eyre::{bail, eyre, Result};
 use ht16k33::{Dimming, Display};
 use linux_embedded_hal::I2cdev;
 use reedline::{DefaultPrompt, Reedline, Signal};
-use wb_notifier::bargraph::{Bargraph, LedColor};
+use wb_notifier::bargraph::driver::{Bargraph, LedColor};
 
 // trait CommandHelpers {
 //     fn
