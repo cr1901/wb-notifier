@@ -80,18 +80,15 @@ pub mod bargraph {
             }
 
             // Row and column mappings found via trial and error.
-            let row = 2*((num % 12)/4); 
-                          // Base row is red. Adafruit schematics
-                          // seem to contradict observed behavior where
-                          // all COMMONs are used, only 6 rows are used.
-
-            let col  =if num >= 12 {
-                 num % 4 + 4
+            let row = if num >= 12 {
+                num % 4 + 4
             } else {
                 num % 4
             };
+            let col = (num / 4) % 3;
+
             let red_loc = LedLocation::new(row, col).unwrap();
-            let green_loc = LedLocation::new(row + 1, col).unwrap();
+            let green_loc = LedLocation::new(row + 8, col).unwrap();
 
             self.drv.update_display_buffer(red_loc, false);
             self.drv.update_display_buffer(green_loc, false);

@@ -6,8 +6,9 @@ use argh::FromArgs;
 use config::Config;
 use directories::ProjectDirs;
 use eyre::{bail, eyre, Result};
-use ht16k33::Display;
+use ht16k33::{Display, Dimming};
 use jsonrpsee::server::{RpcModule, ServerBuilder, ServerHandle};
+use jsonrpsee::types::error::CallError;
 use linux_embedded_hal::I2cdev;
 use serde::Deserialize;
 use tokio::{runtime, sync, task, time};
@@ -64,6 +65,11 @@ enum BargraphCmd {
     ClearLed {
         row: u8,
         col: u8,
+        resp: CmdResponse<Result<()>>
+    },
+    SetLedNo {
+        num: u8,
+        color: LedColor,
         resp: CmdResponse<Result<()>>
     },
     StartBlink {
@@ -164,6 +170,36 @@ fn main() -> Result<()> {
                 }
             })?;
 
+            let req_tx = i2c_req_tx.clone();
+            let blink_tx = blink_req_tx.clone();
+            module.register_async_method("set_led_no", move|p, _| {
+                let req_tx = req_tx.clone();
+                let blink_tx = blink_tx.clone();
+                let (resp,resp_rx) = sync::oneshot::channel();
+
+                async move {
+                    let (num, color_str): (u8, String) = p.parse()?;
+
+                    let color = match &*color_str {
+                        "red" | "urgent" => LedColor::Red,
+                        "yellow" | "error" => LedColor::Yellow,
+                        "green" | "ok" => LedColor::Green,
+                        "off" | "ack" | "clear" => LedColor::Off,
+                        _ => return Err(CallError::InvalidParams(anyhow::anyhow!("unexpected led color string")).into()),
+                    };
+
+                    req_tx.send(BargraphCmd::SetLedNo { num, color, resp } ).await;
+                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
+
+                    match color {
+                        LedColor::Red | LedColor::Yellow | LedColor::Green => blink_tx.send(BlinkInfo::LedSet(num)).await,
+                        LedColor::Off => blink_tx.send(BlinkInfo::LedClear(num)).await
+                    };
+
+                    Ok(())
+                }
+            })?;
+
             server.start(module)?.stopped().await;
             Ok(())
         })
@@ -193,7 +229,7 @@ async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mps
         send.send(BargraphCmd::StartBlink { resp }).await;
         resp_rx.await;
 
-        let sleep = time::sleep(Duration::new(5, 0));
+        let sleep = time::sleep(Duration::new(60, 0));
         tokio::pin!(sleep);
 
         // Yikes! Refactor later...
@@ -205,7 +241,8 @@ async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mps
                         if let BlinkInfo::LedSet(_) = bi {
                             continue 'blink_timer_reset;
                         } else {
-                            // LED cleared... do nothing.
+                            // LED cleared... cancel.
+                            break 'blink_timer_reset;
                         }
                     } else {
                         return;
@@ -221,7 +258,7 @@ async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mps
         send.send(BargraphCmd::MediumBlink { resp }).await;
         resp_rx.await;
 
-        let sleep = time::sleep(Duration::new(5, 0));
+        let sleep = time::sleep(Duration::new(300, 0));
         tokio::pin!(sleep);
 
         loop {
@@ -232,7 +269,8 @@ async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mps
                         if let BlinkInfo::LedSet(_) = bi {
                             continue 'blink_timer_reset;
                         } else {
-                            // LED cleared... do nothing.
+                            // LED cleared... cancel.
+                            break 'blink_timer_reset;
                         }
                     } else {
                         return;
@@ -248,7 +286,7 @@ async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mps
         send.send(BargraphCmd::SlowBlink { resp }).await;
         resp_rx.await;
 
-        let sleep = time::sleep(Duration::new(5, 0));
+        let sleep = time::sleep(Duration::new(900, 0));
         tokio::pin!(sleep);
 
         loop {
@@ -259,7 +297,8 @@ async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mps
                         if let BlinkInfo::LedSet(_) = bi {
                             continue 'blink_timer_reset;
                         } else {
-                            // LED cleared... do nothing.
+                            // LED cleared... cancel.
+                            break 'blink_timer_reset;
                         }
                     } else {
                         return;
@@ -311,6 +350,10 @@ fn bargraph_driver(device: String, addr: u8, mut recv: sync::mpsc::Receiver<Barg
                     let res = bargraph.set_led(row, col, false);
                     resp.send(res.map_err(|e| e.into()));
                 },
+                BargraphCmd::SetLedNo { num, color, resp} => {
+                    let res = bargraph.set_led_no(num, color);
+                    resp.send(res.map_err(|e| e.into()));
+                },
                 BargraphCmd::StartBlink { resp } => {
                     let res = bargraph.set_display(Display::TWO_HZ);
                     resp.send(res.map_err(|e| e.into()));
@@ -344,6 +387,7 @@ fn i2c_init(device: String, addr: u8) -> Result<Bargraph<I2cdev>> {
 
     let mut bargraph = Bargraph::new(i2c, addr);
     bargraph.initialize()?;
+    bargraph.set_dimming(Dimming::BRIGHTNESS_3_16)?;
 
     Ok(bargraph)
 }
