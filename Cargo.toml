@@ -19,4 +19,4 @@ jsonrpsee = { version = "0.16.2", features = ["http-client", "server"] }
 linux-embedded-hal = { version = "0.3", features = ["gpio_cdev"] }
 reedline = "0.14.0"
 serde = "1.0.152"
-tokio = { version = "1", default_features = false, features = ["rt", "sync"] }
+tokio = { version = "1", default_features = false, features = ["macros", "rt", "sync"] }

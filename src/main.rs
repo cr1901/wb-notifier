@@ -69,9 +69,21 @@ enum BargraphCmd {
     StartBlink {
         resp: CmdResponse<Result<()>>
     },
+    MediumBlink {
+        resp: CmdResponse<Result<()>>
+    },
+    SlowBlink {
+        resp: CmdResponse<Result<()>>
+    },
     StopBlink {
         resp: CmdResponse<Result<()>>
     }
+}
+
+#[derive(Clone, Copy)]
+enum BlinkInfo {
+    LedSet(u8),
+    LedClear(u8)
 }
 
 fn main() -> Result<()> {
@@ -102,9 +114,14 @@ fn main() -> Result<()> {
             let server = ServerBuilder::default().build(socket).await?;
 
             let (i2c_req_tx, i2c_req_rx) = sync::mpsc::channel(16);
-
             thread::spawn(move || {
                 bargraph_driver(args.dev, 0x70, i2c_req_rx)
+            });
+
+            let req_tx = i2c_req_tx.clone();
+            let (blink_req_tx, blink_req_rx) = sync::mpsc::channel(16);
+            task::spawn(async move {
+                blink_task(req_tx, blink_req_rx).await;
             });
 
             let (resp,resp_rx) = sync::oneshot::channel();
@@ -114,41 +131,34 @@ fn main() -> Result<()> {
             let mut module = RpcModule::new(());
             
             let req_tx = i2c_req_tx.clone();
+            let blink_tx = blink_req_tx.clone();
             module.register_async_method("set_led", move|p, _| {
                 let req_tx = req_tx.clone();
+                let blink_tx = blink_tx.clone();
                 let (resp,resp_rx) = sync::oneshot::channel();
 
                 async move {
                     let (row, col): (u8, u8) = p.parse()?;
                     req_tx.send(BargraphCmd::SetLed { row, col, resp } ).await;
                     resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
-
-                    task::spawn(async move {
-                        let (resp,resp_rx) = sync::oneshot::channel();
-                        req_tx.send(BargraphCmd::StartBlink { resp }).await;
-                        resp_rx.await;
-
-                        time::sleep(Duration::new(5, 0)).await;
-
-                        let (resp,resp_rx) = sync::oneshot::channel();
-                        req_tx.send(BargraphCmd::StopBlink { resp }).await;
-                        resp_rx.await;
-                    });
-
+                    blink_tx.send(BlinkInfo::LedSet(0)).await;
 
                     Ok(())
                 }
             })?;
 
             let req_tx = i2c_req_tx.clone();
+            let blink_tx = blink_req_tx.clone();
             module.register_async_method("clear_led", move|p, _| {
                 let req_tx = req_tx.clone();
+                let blink_tx = blink_tx.clone();
                 let (resp,resp_rx) = sync::oneshot::channel();
 
                 async move {
                     let (row, col): (u8, u8) = p.parse()?;
                     let _ = req_tx.send(BargraphCmd::ClearLed { row, col, resp } ).await;
                     resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
+                    blink_tx.send(BlinkInfo::LedClear(0)).await;
 
                     Ok(())
                 }
@@ -157,6 +167,114 @@ fn main() -> Result<()> {
             server.start(module)?.stopped().await;
             Ok(())
         })
+}
+
+// Every time we receive something, we reset the time to blink.
+async fn blink_task(send: sync::mpsc::Sender<BargraphCmd>, mut recv: sync::mpsc::Receiver<BlinkInfo>) {
+    loop {
+        if let Some(bi) = recv.recv().await {
+            if let BlinkInfo::LedSet(_) = bi {
+                blink_loop(&send, &mut recv, bi).await;
+            } else {
+                // LED was cleared when no pending timers... nothing to do.
+                continue;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+// TODO: Make aware of current LEDs lit and which ones aren't to figure out
+// actual time to stop blinking (use oneshots to send info about LED numbers?)
+async fn blink_loop(send: &sync::mpsc::Sender<BargraphCmd>, recv: &mut sync::mpsc::Receiver<BlinkInfo>, _bi_init: BlinkInfo) {
+    'blink_timer_reset: loop {
+        let (resp,resp_rx) = sync::oneshot::channel();
+        send.send(BargraphCmd::StartBlink { resp }).await;
+        resp_rx.await;
+
+        let sleep = time::sleep(Duration::new(5, 0));
+        tokio::pin!(sleep);
+
+        // Yikes! Refactor later...
+        loop {
+            tokio::select! {
+                // Recv can fail... bail completely from function if so.
+                r = recv.recv() => {
+                    if let Some(bi) = r {
+                        if let BlinkInfo::LedSet(_) = bi {
+                            continue 'blink_timer_reset;
+                        } else {
+                            // LED cleared... do nothing.
+                        }
+                    } else {
+                        return;
+                    }
+                },
+                _ = &mut sleep => {
+                    break;
+                }
+            }
+        }
+
+        let (resp,resp_rx) = sync::oneshot::channel();
+        send.send(BargraphCmd::MediumBlink { resp }).await;
+        resp_rx.await;
+
+        let sleep = time::sleep(Duration::new(5, 0));
+        tokio::pin!(sleep);
+
+        loop {
+            tokio::select! {
+                // Recv can fail... bail completely from function if so.
+                r = recv.recv() => {
+                    if let Some(bi) = r {
+                        if let BlinkInfo::LedSet(_) = bi {
+                            continue 'blink_timer_reset;
+                        } else {
+                            // LED cleared... do nothing.
+                        }
+                    } else {
+                        return;
+                    }
+                },
+                _ = &mut sleep => {
+                    break;
+                }
+            }
+        }
+
+        let (resp,resp_rx) = sync::oneshot::channel();
+        send.send(BargraphCmd::SlowBlink { resp }).await;
+        resp_rx.await;
+
+        let sleep = time::sleep(Duration::new(5, 0));
+        tokio::pin!(sleep);
+
+        loop {
+            tokio::select! {
+                // Recv can fail... bail completely from function if so.
+                r = recv.recv() => {
+                    if let Some(bi) = r {
+                        if let BlinkInfo::LedSet(_) = bi {
+                            continue 'blink_timer_reset;
+                        } else {
+                            // LED cleared... do nothing.
+                        }
+                    } else {
+                        return;
+                    }
+                },
+                _ = &mut sleep => {
+                    break 'blink_timer_reset;
+                }
+            }
+        }
+    }
+
+    let (resp,resp_rx) = sync::oneshot::channel();
+    send.send(BargraphCmd::StopBlink { resp }).await;
+    resp_rx.await;
 }
 
 fn bargraph_driver(device: String, addr: u8, mut recv: sync::mpsc::Receiver<BargraphCmd>) {
@@ -194,6 +312,14 @@ fn bargraph_driver(device: String, addr: u8, mut recv: sync::mpsc::Receiver<Barg
                     resp.send(res.map_err(|e| e.into()));
                 },
                 BargraphCmd::StartBlink { resp } => {
+                    let res = bargraph.set_display(Display::TWO_HZ);
+                    resp.send(res.map_err(|e| e.into()));
+                },
+                BargraphCmd::MediumBlink { resp } => {
+                    let res = bargraph.set_display(Display::ONE_HZ);
+                    resp.send(res.map_err(|e| e.into()));
+                },
+                BargraphCmd::SlowBlink { resp } => {
                     let res = bargraph.set_display(Display::HALF_HZ);
                     resp.send(res.map_err(|e| e.into()));
                 },
