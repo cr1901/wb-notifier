@@ -9,17 +9,24 @@ default-run = "wb-notifier"
 [dependencies]
 anyhow = "1.0.68"
 argh = "0.1.9"
-cliargs_t = "0.1.0"
-config = "0.13.3"
+cliargs_t = { version = "0.1.0", optional = true }
+config = { version = "0.13.3", default_features = false, features = ["json"] }
 directories = "4.0.1"
 embedded-hal = "0.2.7"
 eyre = "0.6.8"
 ht16k33 = { git = "https://github.com/cr1901/ht16k33", branch="common-addrs", version = "0.5.0", features = [] }
-jsonrpsee = { version = "0.16.2", features = ["http-client", "server"] }
-linux-embedded-hal = { version = "0.3", features = ["gpio_cdev"] }
-reedline = "0.14.0"
+jsonrpsee = { version = "0.16.2", features = ["server"] }
+linux-embedded-hal = { version = "0.3", default_features = false, features = ["gpio_cdev"] }
+reedline = { version = "0.14.0", optional = true }
 serde = "1.0.152"
-tokio = { version = "1", default_features = false, features = ["macros", "rt", "sync"] }
+tokio = { version = "1", default_features = false, features = ["macros", "rt", "sync", "time"] }
+
+[features]
+cli = ["dep:cliargs_t", "dep:reedline"]
+
+[[bin]]
+name = "bargraph-cli"
+required-features = ["cli"]
 
 [profile.release]
 opt-level = 'z'
