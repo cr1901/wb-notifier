@@ -126,15 +126,18 @@ fn main() -> Result<()> {
                 async move {
                     let _ = shutdown_tx.clone();
                     let (row, col): (u8, u8) = p.parse()?;
-                    req_tx.send(BargraphCmd::SetLed { row, col, resp })
-                          .await
-                          .map_err(anyhow::Error::from)?;
-                    resp_rx.await
-                           .map_err(anyhow::Error::from)?
-                           .map_err(report_to_anyhow)?;
-                    blink_tx.send(BlinkInfo::LedSet(0))
-                            .await
-                            .map_err(anyhow::Error::from)?;
+                    req_tx
+                        .send(BargraphCmd::SetLed { row, col, resp })
+                        .await
+                        .map_err(anyhow::Error::from)?;
+                    resp_rx
+                        .await
+                        .map_err(anyhow::Error::from)?
+                        .map_err(report_to_anyhow)?;
+                    blink_tx
+                        .send(BlinkInfo::LedSet(0))
+                        .await
+                        .map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
@@ -152,9 +155,18 @@ fn main() -> Result<()> {
                 async move {
                     let _ = shutdown_tx.clone();
                     let (row, col): (u8, u8) = p.parse()?;
-                    req_tx.send(BargraphCmd::ClearLed { row, col, resp }).await.map_err(anyhow::Error::from)?;
-                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
-                    blink_tx.send(BlinkInfo::LedClear(0)).await.map_err(anyhow::Error::from)?;
+                    req_tx
+                        .send(BargraphCmd::ClearLed { row, col, resp })
+                        .await
+                        .map_err(anyhow::Error::from)?;
+                    resp_rx
+                        .await
+                        .map_err(anyhow::Error::from)?
+                        .map_err(report_to_anyhow)?;
+                    blink_tx
+                        .send(BlinkInfo::LedClear(0))
+                        .await
+                        .map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
@@ -190,13 +202,20 @@ fn main() -> Result<()> {
                         .send(BargraphCmd::SetLedNo { num, color, resp })
                         .await
                         .map_err(anyhow::Error::from)?;
-                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
+                    resp_rx
+                        .await
+                        .map_err(anyhow::Error::from)?
+                        .map_err(report_to_anyhow)?;
 
                     match color {
-                        LedColor::Red | LedColor::Yellow | LedColor::Green => {
-                            blink_tx.send(BlinkInfo::LedSet(num)).await.map_err(anyhow::Error::from)?
-                        }
-                        LedColor::Off => blink_tx.send(BlinkInfo::LedClear(num)).await.map_err(anyhow::Error::from)?,
+                        LedColor::Red | LedColor::Yellow | LedColor::Green => blink_tx
+                            .send(BlinkInfo::LedSet(num))
+                            .await
+                            .map_err(anyhow::Error::from)?,
+                        LedColor::Off => blink_tx
+                            .send(BlinkInfo::LedClear(num))
+                            .await
+                            .map_err(anyhow::Error::from)?,
                     };
 
                     Ok(())
@@ -240,9 +259,18 @@ fn main() -> Result<()> {
                         }
                     };
 
-                    req_tx.send(BargraphCmd::SetBrightness { pwm, resp }).await.map_err(anyhow::Error::from)?;
-                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
-                    blink_tx.send(BlinkInfo::LedClear(0)).await.map_err(anyhow::Error::from)?;
+                    req_tx
+                        .send(BargraphCmd::SetBrightness { pwm, resp })
+                        .await
+                        .map_err(anyhow::Error::from)?;
+                    resp_rx
+                        .await
+                        .map_err(anyhow::Error::from)?
+                        .map_err(report_to_anyhow)?;
+                    blink_tx
+                        .send(BlinkInfo::LedClear(0))
+                        .await
+                        .map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
@@ -260,8 +288,14 @@ fn main() -> Result<()> {
                 async move {
                     let _ = shutdown_tx.clone();
                     let _ = req_tx.send(BargraphCmd::Init { resp }).await;
-                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
-                    blink_tx.send(BlinkInfo::LedClear(0)).await.map_err(anyhow::Error::from)?;
+                    resp_rx
+                        .await
+                        .map_err(anyhow::Error::from)?
+                        .map_err(report_to_anyhow)?;
+                    blink_tx
+                        .send(BlinkInfo::LedClear(0))
+                        .await
+                        .map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
