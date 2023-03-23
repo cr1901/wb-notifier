@@ -1,10 +1,15 @@
+#[cfg(feature = "cli")]
+compile_error!("please build the daemon without the cli feature");
+
+use std::error::Error as StdError;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::thread;
 
+use anyhow::anyhow;
 use argh::FromArgs;
 use config::Config;
 use directories::ProjectDirs;
-use eyre::{eyre, Result};
+use eyre::{eyre, Report, Result};
 use ht16k33::Dimming;
 use jsonrpsee::server::{RpcModule, ServerBuilder};
 use jsonrpsee::types::error::CallError;
@@ -43,6 +48,7 @@ struct ServerArgs {
     cfg_file: Option<String>,
     /// do not exit if communication failure with device
     #[argh(switch, short = 'r')]
+    #[allow(unused)]
     relaxed: bool,
     /// port to bind to
     #[argh(option, short = 'p')]
@@ -50,6 +56,11 @@ struct ServerArgs {
     /// i2c bus to connect to
     #[argh(positional)]
     dev: String,
+}
+
+fn report_to_anyhow(r: Report) -> anyhow::Error {
+    let boxed: Box<dyn StdError + Send + Sync + 'static> = Box::from(r);
+    anyhow!(boxed)
 }
 
 fn main() -> Result<()> {
@@ -60,6 +71,7 @@ fn main() -> Result<()> {
     let cfg_file = dirs.config_dir().join("workbench.json");
     let settings = Config::builder();
 
+    #[allow(unused)]
     let cfgs = if let Some(cfg_file_override) = args.cfg_file {
         settings
             .add_source(config::File::with_name(&cfg_file_override))
@@ -104,16 +116,25 @@ fn main() -> Result<()> {
 
             let req_tx = i2c_req_tx.clone();
             let blink_tx = blink_req_tx.clone();
+            let shutdown_tx = shutdown_complete_tx.clone();
             module.register_async_method("set_led", move |p, _| {
                 let req_tx = req_tx.clone();
                 let blink_tx = blink_tx.clone();
+                let shutdown_tx = shutdown_tx.clone();
                 let (resp, resp_rx) = sync::oneshot::channel();
 
                 async move {
+                    let _ = shutdown_tx.clone();
                     let (row, col): (u8, u8) = p.parse()?;
-                    req_tx.send(BargraphCmd::SetLed { row, col, resp }).await;
-                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
-                    blink_tx.send(BlinkInfo::LedSet(0)).await;
+                    req_tx.send(BargraphCmd::SetLed { row, col, resp })
+                          .await
+                          .map_err(anyhow::Error::from)?;
+                    resp_rx.await
+                           .map_err(anyhow::Error::from)?
+                           .map_err(report_to_anyhow)?;
+                    blink_tx.send(BlinkInfo::LedSet(0))
+                            .await
+                            .map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
@@ -121,16 +142,19 @@ fn main() -> Result<()> {
 
             let req_tx = i2c_req_tx.clone();
             let blink_tx = blink_req_tx.clone();
+            let shutdown_tx = shutdown_complete_tx.clone();
             module.register_async_method("clear_led", move |p, _| {
                 let req_tx = req_tx.clone();
                 let blink_tx = blink_tx.clone();
+                let shutdown_tx = shutdown_tx.clone();
                 let (resp, resp_rx) = sync::oneshot::channel();
 
                 async move {
+                    let _ = shutdown_tx.clone();
                     let (row, col): (u8, u8) = p.parse()?;
-                    let _ = req_tx.send(BargraphCmd::ClearLed { row, col, resp }).await;
-                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
-                    blink_tx.send(BlinkInfo::LedClear(0)).await;
+                    req_tx.send(BargraphCmd::ClearLed { row, col, resp }).await.map_err(anyhow::Error::from)?;
+                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
+                    blink_tx.send(BlinkInfo::LedClear(0)).await.map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
@@ -138,12 +162,15 @@ fn main() -> Result<()> {
 
             let req_tx = i2c_req_tx.clone();
             let blink_tx = blink_req_tx.clone();
+            let shutdown_tx = shutdown_complete_tx.clone();
             module.register_async_method("set_led_no", move |p, _| {
                 let req_tx = req_tx.clone();
                 let blink_tx = blink_tx.clone();
+                let shutdown_tx = shutdown_tx.clone();
                 let (resp, resp_rx) = sync::oneshot::channel();
 
                 async move {
+                    let _ = shutdown_tx.clone();
                     let (num, color_str): (u8, String) = p.parse()?;
 
                     let color = match &*color_str {
@@ -161,14 +188,15 @@ fn main() -> Result<()> {
 
                     req_tx
                         .send(BargraphCmd::SetLedNo { num, color, resp })
-                        .await;
-                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
+                        .await
+                        .map_err(anyhow::Error::from)?;
+                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
 
                     match color {
                         LedColor::Red | LedColor::Yellow | LedColor::Green => {
-                            blink_tx.send(BlinkInfo::LedSet(num)).await
+                            blink_tx.send(BlinkInfo::LedSet(num)).await.map_err(anyhow::Error::from)?
                         }
-                        LedColor::Off => blink_tx.send(BlinkInfo::LedClear(num)).await,
+                        LedColor::Off => blink_tx.send(BlinkInfo::LedClear(num)).await.map_err(anyhow::Error::from)?,
                     };
 
                     Ok(())
@@ -177,12 +205,15 @@ fn main() -> Result<()> {
 
             let req_tx = i2c_req_tx.clone();
             let blink_tx = blink_req_tx.clone();
+            let shutdown_tx = shutdown_complete_tx.clone();
             module.register_async_method("set_brightness", move |p, _| {
                 let req_tx = req_tx.clone();
                 let blink_tx = blink_tx.clone();
+                let shutdown_tx = shutdown_tx.clone();
                 let (resp, resp_rx) = sync::oneshot::channel();
 
                 async move {
+                    let _ = shutdown_tx.clone();
                     let pwm = match p.parse()? {
                         1 => Dimming::BRIGHTNESS_1_16,
                         2 => Dimming::BRIGHTNESS_2_16,
@@ -209,9 +240,9 @@ fn main() -> Result<()> {
                         }
                     };
 
-                    let _ = req_tx.send(BargraphCmd::SetBrightness { pwm, resp }).await;
-                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
-                    blink_tx.send(BlinkInfo::LedClear(0)).await;
+                    req_tx.send(BargraphCmd::SetBrightness { pwm, resp }).await.map_err(anyhow::Error::from)?;
+                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
+                    blink_tx.send(BlinkInfo::LedClear(0)).await.map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }
@@ -219,15 +250,18 @@ fn main() -> Result<()> {
 
             let req_tx = i2c_req_tx.clone();
             let blink_tx = blink_req_tx.clone();
-            module.register_async_method("reset", move |p, _| {
+            let shutdown_tx = shutdown_complete_tx.clone();
+            module.register_async_method("reset", move |_, _| {
                 let req_tx = req_tx.clone();
                 let blink_tx = blink_tx.clone();
+                let shutdown_tx = shutdown_tx.clone();
                 let (resp, resp_rx) = sync::oneshot::channel();
 
                 async move {
+                    let _ = shutdown_tx.clone();
                     let _ = req_tx.send(BargraphCmd::Init { resp }).await;
-                    resp_rx.await.map_err(|e| Into::<anyhow::Error>::into(e))?;
-                    blink_tx.send(BlinkInfo::LedClear(0)).await;
+                    resp_rx.await.map_err(anyhow::Error::from)?.map_err(report_to_anyhow)?;
+                    blink_tx.send(BlinkInfo::LedClear(0)).await.map_err(anyhow::Error::from)?;
 
                     Ok(())
                 }

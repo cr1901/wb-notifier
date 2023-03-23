@@ -56,7 +56,7 @@ pub struct BlinkTask {
     _shutdown_complete: sync::mpsc::Sender<()>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum BlinkInfo {
     LedSet(u8),
     LedClear(u8),
