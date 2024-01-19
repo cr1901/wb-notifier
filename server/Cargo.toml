@@ -6,4 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-executor = { version = "1.8.0", default-features = false }
 async-net = "2.0.0"
+postcard = { version = "1.0.8", default_features = false, features = [ "use-std" ] }
+postcard-rpc = { version = "0.3.1", default-features = false }
+serde = { version = "1.0.195", default-features = false, features = [ "std" ] }
+wb-notifier-proto = { path = "../proto" }
+

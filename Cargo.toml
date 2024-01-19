@@ -5,6 +5,9 @@ edition = "2021"
 
 [dependencies]
 smol = "2.0.0"
+postcard = { version = "1.0.8", default_features = false, features = [ "use-std" ] }
+postcard-rpc = { version = "0.3.1", default-features = false }
+wb-notifier-proto = { path = "./proto" }
 wb-notifier-server = { path = "./server" }
 
 [workspace]
