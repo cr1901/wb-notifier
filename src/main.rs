@@ -1,7 +1,11 @@
 use smol;
 use wb_notifier_server::Server;
 
+use smol::LocalExecutor;
+use std::rc::Rc;
+
 fn main() {
     let server = Server::new();
-    smol::block_on(server.main_loop());
+    let ex = Rc::new(LocalExecutor::new());
+    smol::block_on(ex.run(server.main_loop(ex.clone())));
 }

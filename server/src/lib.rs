@@ -86,11 +86,10 @@ impl Server {
         self.addr = Some(addr.into());
     }
 
-    pub async fn main_loop(self) -> Result<(), Error> {
+    pub async fn main_loop(self, ex: Rc<LocalExecutor<'_>>) -> Result<(), Error> {
         let default_addr: SocketAddr = "0.0.0.0:12000".parse().unwrap();
         let socket = UdpSocket::bind(self.addr.unwrap_or(default_addr)).await?;
         let mut buf = vec![0u8; 1024];
-        let ex = Rc::new(LocalExecutor::new());
         let mut dispatch = Dispatch::<Context, Error, 16>::new(Context::new(&ex, socket.clone()));
 
         dispatch.add_handler::<EchoEndpoint>(echo_handler).map_err(|s| Error::Init(s))?;
@@ -110,13 +109,11 @@ fn echo_handler<'ex, 'b>(hdr: &WireHeader, ctx: &mut Context<'ex, 'b>, bytes: &[
     let Context { ex, sock, addr , .. } = ctx;
     let addr = addr.unwrap().clone();
     let sock = sock.clone();
-    let ex = Rc::clone(ex);
     // let ctx = ctx.clone();
 
     match postcard::from_bytes::<Echo>(bytes) {
         Ok(msg) => {
-            ctx.ex.spawn(echo_task(ex, hdr.seq_no, hdr.key, (sock, addr), msg.0)).detach();
-            ctx.ex.try_tick();
+            ex.spawn(echo_task(ex.clone(), hdr.seq_no, hdr.key, (sock, addr), msg.0)).detach();
             Ok(())
         },
         Err(e) => {
