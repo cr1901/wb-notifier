@@ -1,4 +1,3 @@
-
 // use std::any::Any;
 
 use super::bargraph::*;
@@ -17,31 +16,20 @@ use wb_notifier_proto::{SetLed, SetLedResponse};
 #[derive(Debug)]
 pub enum Bargraph {
     Init,
-    SetLed {
-        row: u8,
-        col: u8,
-    },
-    ClearLed {
-        row: u8,
-        col: u8,
-    },
-    SetLedNo {
-        num: u8,
-        color: LedColor,
-    },
-    SetBrightness {
-        pwm: Dimming,
-    },
+    SetLed { row: u8, col: u8 },
+    ClearLed { row: u8, col: u8 },
+    SetLedNo { num: u8, color: LedColor },
+    SetBrightness { pwm: Dimming },
     StartBlink,
     MediumBlink,
     SlowBlink,
-    StopBlink
+    StopBlink,
 }
 
 #[derive(Debug)]
 pub enum InitFailure {
     Bargraph,
-    RespChannelClosed
+    RespChannelClosed,
 }
 
 // impl From<(SetLed, CmdResponse<Result<(),()>>)> for BargraphCmd {

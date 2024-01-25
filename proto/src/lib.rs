@@ -1,5 +1,5 @@
 use postcard::experimental::schema::Schema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 pub const ECHO: &str = "debug/echo";
 pub const HD44780_ENABLE_PATH: &str = "lcd/enable";
@@ -12,7 +12,6 @@ pub struct Echo(pub String);
 #[derive(Serialize, Deserialize, Schema)]
 pub struct EchoResponse(pub String);
 
-
 // This is our Request type
 #[derive(Serialize, Deserialize, Schema)]
 pub struct Enable();
@@ -21,11 +20,10 @@ pub struct Enable();
 #[derive(Serialize, Deserialize, Schema)]
 pub struct EnableResponse(Result<(), ()>);
 
-
 #[derive(Serialize, Deserialize, Schema)]
 pub struct SetLed {
     pub row: u8,
-    pub col: u8
+    pub col: u8,
 }
 
 // This is our Response type

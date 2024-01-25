@@ -4,9 +4,7 @@ use embedded_hal::blocking::i2c::{Write, WriteRead};
 use std::error;
 use std::fmt;
 
-use ht16k33::{
-    Display, DisplayData, LedLocation, Oscillator, COMMONS_SIZE, HT16K33, ROWS_SIZE,
-};
+use ht16k33::{Display, DisplayData, LedLocation, Oscillator, COMMONS_SIZE, HT16K33, ROWS_SIZE};
 
 pub(crate) use ht16k33::Dimming;
 
