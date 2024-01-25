@@ -8,18 +8,8 @@ pub mod bargraph;
 pub mod cmds;
 pub mod lcd;
 
-// pub struct SensorLoop<'a, I2C> {
-//     bus: Option<BusManagerSimple<I2C>>,
-//     bargraph: Option<bargraph::Bargraph<I2cProxy<'a, NullMutex<I2C>>>>
-// }
-
-// impl<'a, I2C, E> SensorLoop<'a, I2C> where I2C: Write<Error = E> + WriteRead<Error = E>, E: 'static {
-//     pub fn new(i2c: I2C) -> Self {
-//         Self {
-//             bus: Some(BusManagerSimple::new(i2c)),
-//             bargraph: None
-//         }
-//     }
+pub type AsyncRecv = Receiver<(Request, Sender<Response>)>;
+pub type Response = Box<dyn Any + Send>;
 
 struct Sensors<'a, I2C> {
     bargraph: Option<bargraph::Bargraph<I2cProxy<'a, NullMutex<I2C>>>>,
@@ -31,7 +21,7 @@ impl<'a, I2C> Sensors<'a, I2C> {
     }
 }
 
-pub fn main_loop<I2C, E>(bus: I2C, cmd: Receiver<(Request, Sender<Response>)>)
+pub fn main_loop<I2C, E>(bus: I2C, cmd: AsyncRecv)
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
     E: 'static,
@@ -123,4 +113,3 @@ pub enum Request {
     LoopDeinit,
 }
 
-pub type Response = Box<dyn Any + Send>;

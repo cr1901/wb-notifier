@@ -29,3 +29,19 @@ pub struct SetLed {
 // This is our Response type
 #[derive(Serialize, Deserialize, Schema)]
 pub struct SetLedResponse(pub Result<(), ()>);
+
+/* TODO: "Get Error" endpoint... something like
+#[derive(Serialize, Deserialize, Schema)]
+pub struct ErrorQuery {
+    pub seq_no: u32,
+    pub key: Key,
+}
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct LastErrorResponse(pub Option<DispatchError>);
+
+#[derive(Serialize, Deserialize, Schema)]
+pub enum DispatchError {
+    NonexistentEndpoint
+}
+*/

@@ -1,15 +1,10 @@
-use async_channel::{bounded, Receiver, Sender};
+use async_channel::{bounded, Sender};
 use async_executor::LocalExecutor;
 use async_net::{SocketAddr, UdpSocket};
 use linux_embedded_hal::I2cdev;
-use postcard_rpc::Dispatch;
-use postcard_rpc::WireHeader;
-use postcard_rpc::{self, endpoint};
-use postcard_rpc::{Endpoint, Key};
+use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
-use wb_notifier_driver::cmds::{self, InitFailure};
 
-use std::any::Any;
 use std::error;
 use std::fmt;
 use std::future::Future;
@@ -17,7 +12,8 @@ use std::io;
 use std::rc::Rc;
 use std::thread;
 
-use wb_notifier_driver::{self, Request};
+use wb_notifier_driver::cmds::{self, InitFailure};
+use wb_notifier_driver::{self, Request, Response};
 use wb_notifier_proto::*;
 
 endpoint!(EchoEndpoint, Echo, EchoResponse, "debug/echo");
@@ -27,11 +23,13 @@ pub struct Server {
     addr: Option<SocketAddr>,
 }
 
+type AsyncSend = Sender<(Request, Sender<Response>)>;
+
 struct Context<'ex, 'b> {
     ex: &'b Rc<LocalExecutor<'ex>>,
     sock: UdpSocket,
     addr: Option<SocketAddr>,
-    send: Option<Sender<(Request, Sender<Box<dyn Any + Send>>)>>,
+    send: Option<AsyncSend>,
 }
 
 impl<'ex, 'b> Context<'ex, 'b> {
@@ -116,14 +114,17 @@ impl Server {
             .send((Request::LoopInit, resp_send))
             .await
             .map_err(|_| Error::Init("sensor thread closed send channel"))?;
+
         let init_res = resp_recv
             .recv()
             .await
-            .unwrap()
-            .downcast::<Result<(), InitFailure>>()
-            .unwrap();
+            .map_err(|_| Error::Init("did not receive response from sensor thread"))?;
 
-        if let Err(e) = *init_res {
+        if let Err(e) = init_res
+            .downcast::<Result<(), InitFailure>>()
+            .as_deref()
+            .unwrap()
+        {
             println!("{:?}", e);
             return Err(Error::Init("sensor thread failed to initialize"));
         }
@@ -142,7 +143,7 @@ impl Server {
             match dispatch.dispatch(&mut buf[..n]) {
                 Ok(_) => {}
                 Err(e) => {
-                    todo!("Need to handle error: {:?}", e)
+                    println!("Need to handle error: {:?}", e)
                 }
             }
         }
@@ -190,30 +191,31 @@ async fn set_led_task<'a, 'ex>(
     seq_no: u32,
     key: Key,
     (sock, addr): (UdpSocket, SocketAddr),
-    req_send: Sender<(Request, Sender<Box<dyn Any + Send>>)>,
+    req_send: AsyncSend,
     SetLed { row, col }: SetLed,
 ) {
     let mut buf = vec![0u8; 1024];
 
     let (resp_send, resp_recv) = bounded(1);
 
-    req_send
+    // For now, we give up on any send/recv/downcast/deserialize errors and
+    // rely on client to time out.
+    let _ = req_send
         .send((
             Request::Bargraph(cmds::Bargraph::SetLed { row, col }),
             resp_send,
         ))
-        .await
-        .unwrap();
+        .await;
 
-    let resp = resp_recv
+    let res = resp_recv
         .recv()
         .await
-        .unwrap()
-        .downcast::<Result<(), ()>>()
-        .unwrap();
+        .map(|r| r.downcast::<Result<(), ()>>().unwrap());
 
-    if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &*resp, &mut buf) {
-        let _ = sock.send_to(used, addr).await;
+    if let Ok(resp) = res.as_deref() {
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
+            let _ = sock.send_to(used, addr).await;
+        }
     }
 }
 
