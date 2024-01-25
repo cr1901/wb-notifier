@@ -6,11 +6,13 @@ use postcard_rpc::Dispatch;
 use postcard_rpc::WireHeader;
 use postcard_rpc::{self, endpoint};
 use postcard_rpc::{Endpoint, Key};
-use wb_notifier_driver::cmds::InitFailure;
+use serde::Deserialize;
+use wb_notifier_driver::cmds::{self, InitFailure};
 
 use std::any::Any;
 use std::error;
 use std::fmt;
+use std::future::Future;
 use std::io;
 use std::rc::Rc;
 use std::thread;
@@ -30,7 +32,6 @@ struct Context<'ex, 'b> {
     sock: UdpSocket,
     addr: Option<SocketAddr>,
     send: Option<Sender<(Request, Sender<Box<dyn Any + Send>>)>>,
-    resp: Option<(Sender<Box<dyn Any + Send>>, Receiver<Box<dyn Any + Send>>)>,
 }
 
 impl<'ex, 'b> Context<'ex, 'b> {
@@ -40,7 +41,6 @@ impl<'ex, 'b> Context<'ex, 'b> {
             sock,
             addr: None,
             send: None,
-            resp: None,
         }
     }
 }
@@ -139,7 +139,6 @@ impl Server {
         loop {
             let (n, addr) = socket.recv_from(&mut buf).await?;
             dispatch.context().addr = Some(addr);
-            dispatch.context().resp = Some(bounded(1));
             match dispatch.dispatch(&mut buf[..n]) {
                 Ok(_) => {}
                 Err(e) => {
@@ -150,38 +149,40 @@ impl Server {
     }
 }
 
+fn deserialize_detach<'ex, 'de, T, F, H>(
+    ex: Rc<LocalExecutor<'ex>>,
+    bytes: &'de [u8],
+    task: T,
+) -> Result<(), Error>
+where
+    T: FnOnce(H) -> F,
+    F: Future<Output = ()> + 'ex,
+    H: Deserialize<'de>,
+{
+    match postcard::from_bytes::<H>(bytes) {
+        Ok(msg) => {
+            ex.spawn(task(msg)).detach();
+            Ok(())
+        }
+        Err(e) => Err(Error::Parse(e)),
+    }
+}
+
 fn set_led_handler<'ex, 'b>(
     hdr: &WireHeader,
     ctx: &mut Context<'ex, 'b>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    let Context {
-        ex,
-        sock,
-        addr,
-        send,
-        resp,
-    } = ctx;
-    let addr = addr.unwrap().clone();
-    let sock = sock.clone();
-    let send = send.clone().unwrap();
-    // let ctx = ctx.clone();
-
-    match postcard::from_bytes::<SetLed>(bytes) {
-        Ok(msg) => {
-            ex.spawn(set_led_task(
-                ex.clone(),
-                hdr.seq_no,
-                hdr.key,
-                (sock, addr),
-                send,
-                msg,
-            ))
-            .detach();
-            Ok(())
-        }
-        Err(e) => Err(Error::Parse(e)),
-    }
+    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+        set_led_task(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            ctx.send.clone().unwrap(),
+            msg,
+        )
+    })
 }
 
 async fn set_led_task<'a, 'ex>(
@@ -198,7 +199,7 @@ async fn set_led_task<'a, 'ex>(
 
     req_send
         .send((
-            Request::Bargraph(wb_notifier_driver::cmds::Bargraph::SetLed { row, col }),
+            Request::Bargraph(cmds::Bargraph::SetLed { row, col }),
             resp_send,
         ))
         .await
@@ -221,25 +222,15 @@ fn echo_handler<'ex, 'b>(
     ctx: &mut Context<'ex, 'b>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    let Context { ex, sock, addr, .. } = ctx;
-    let addr = addr.unwrap().clone();
-    let sock = sock.clone();
-    // let ctx = ctx.clone();
-
-    match postcard::from_bytes::<Echo>(bytes) {
-        Ok(msg) => {
-            ex.spawn(echo_task(
-                ex.clone(),
-                hdr.seq_no,
-                hdr.key,
-                (sock, addr),
-                msg.0,
-            ))
-            .detach();
-            Ok(())
-        }
-        Err(e) => Err(Error::Parse(e)),
-    }
+    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+        echo_task(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            msg,
+        )
+    })
 }
 
 async fn echo_task<'a, 'ex>(
