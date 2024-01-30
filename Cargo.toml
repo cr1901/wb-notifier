@@ -4,16 +4,22 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-smol = "2.0.0"
+smol = { version = "2.0.0", optional = true }
 postcard = { version = "1.0.8", default_features = false, features = [ "use-std" ] }
 postcard-rpc = { version = "0.3.1", default-features = false }
-wb-notifier-client = { path = "./client" }
+wb-notifier-client = { path = "./client", optional = true }
 wb-notifier-proto = { path = "./proto" }
-wb-notifier-server = { path = "./server" }
+wb-notifier-server = { path = "./server", optional = true }
+cfg-if = "1.0.0"
 
 [[bin]]
 name = "wbn-client"
 path = "src/bin/client.rs"
+
+[features]
+default = [ "client", "server" ]
+client = [ "dep:wb-notifier-client" ]
+server = [ "dep:smol", "dep:wb-notifier-server" ]
 
 [workspace]
 members = [ "client", "driver", "proto", "server" ]
