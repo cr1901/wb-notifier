@@ -8,9 +8,21 @@ pub const SETLED_PATH: &str = "led/set";
 #[derive(Serialize, Deserialize, Schema)]
 pub struct Echo(pub String);
 
+impl From<&str> for Echo {
+    fn from(value: &str) -> Self {
+        Echo(value.to_string())
+    }
+}
+
 // This is our Response type
 #[derive(Serialize, Deserialize, Schema)]
 pub struct EchoResponse(pub String);
+
+impl From<EchoResponse> for String {
+    fn from(value: EchoResponse) -> Self {
+        value.0
+    }
+}
 
 // This is our Request type
 #[derive(Serialize, Deserialize, Schema)]
