@@ -20,7 +20,7 @@ endpoint!(EchoEndpoint, Echo, EchoResponse, "debug/echo");
 endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
 
 pub struct Server {
-    addr: Option<SocketAddr>,
+    addr: SocketAddr,
 }
 
 type AsyncSend = Sender<(Request, Sender<Response>)>;
@@ -88,19 +88,16 @@ impl error::Error for Error {
 
 impl Server {
     pub fn new() -> Self {
-        Self { addr: None }
+        Self { addr: "0.0.0.0:12000".parse().unwrap() }
     }
 
-    pub fn set_addr<S>(&mut self, addr: S)
-    where
-        S: Into<SocketAddr>,
+    pub fn set_port(&mut self, new_port: u16)
     {
-        self.addr = Some(addr.into());
+        self.addr.set_port(new_port)
     }
 
     pub async fn main_loop(self, ex: Rc<LocalExecutor<'_>>) -> Result<(), Error> {
-        let default_addr: SocketAddr = "0.0.0.0:12000".parse().unwrap();
-        let socket = UdpSocket::bind(self.addr.unwrap_or(default_addr)).await?;
+        let socket = UdpSocket::bind(self.addr).await?;
         let mut buf = vec![0u8; 1024];
         let mut dispatch = Dispatch::<Context, Error, 16>::new(Context::new(&ex, socket.clone()));
 

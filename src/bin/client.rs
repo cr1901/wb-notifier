@@ -1,16 +1,16 @@
-use cfg_if::cfg_if;
-
-cfg_if! {
-    if #[cfg(feature="client")] {
-        use wb_notifier_client::Client;
-        use wb_notifier_proto::{Echo, EchoResponse, SetLed};
-    }
+use eyre::Result;
+    
+#[cfg(feature="client")]
+mod client {
+    pub use wb_notifier_client::Client;
+    pub use wb_notifier_proto::{Echo, EchoResponse, SetLed};
 }
 
-use std::error::Error;
+#[cfg(feature="client")]
+use client::*;
 
 #[cfg(feature="client")]
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     let mut client = Client::new();
     client.connect("127.0.0.1:12000")?;
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(not(feature="client"))]
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     println!("client feature not enabled");
 
     Ok(())
