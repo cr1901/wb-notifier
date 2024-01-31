@@ -90,12 +90,12 @@ impl Client {
         self.raw::<Echo, EchoResponse, _, _, _>(ECHO_PATH, msg.into(), buf)
     }
 
-    pub fn set_led<RC>(&mut self, row_col: RC, buf: &mut [u8]) -> Result<(), Error>
+    pub fn set_led<LED>(&mut self, set_led: LED, buf: &mut [u8]) -> Result<(), Error>
     where
-        RC: Into<SetLed>,
+        LED: Into<SetLed>,
     {
         let resp: SetLedResponse =
-            self.raw::<SetLed, SetLedResponse, _, _, _>(SET_LED_PATH, row_col.into(), buf)?;
+            self.raw::<SetLed, SetLedResponse, _, _, _>(SET_LED_PATH, set_led.into(), buf)?;
 
         match resp.0 {
             Ok(()) => Ok(()),

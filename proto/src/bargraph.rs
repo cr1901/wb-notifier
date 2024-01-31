@@ -5,8 +5,8 @@ pub const SET_DIMMING_PATH: &str = "led/dimming";
 
 #[derive(Serialize, Deserialize, Schema)]
 pub struct SetLed {
-    pub row: u8,
-    pub col: u8,
+    pub num: u8,
+    pub color: LedColor
 }
 
 // This is our Response type
@@ -18,6 +18,19 @@ pub struct SetLedResponse(pub Result<(), ()>);
 pub enum SetDimming {
     Lo,
     Hi
+}
+
+#[derive(Serialize, Deserialize, Schema, Clone, Copy, Debug, PartialEq)]
+/// LED colors.
+pub enum LedColor {
+    /// Turn off both the Red & Green LEDs.
+    Off,
+    /// Turn on only the Green LED.
+    Green,
+    /// Turn on only the Red LED.
+    Red,
+    /// Turn on both the Red  & Green LEDs.
+    Yellow,
 }
 
 // This is our Response type

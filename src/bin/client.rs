@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     let resp = client.echo("hello!", &mut buf)?;
     println!("{}", resp);
 
-    client.set_led(SetLed { row: 0, col: 0 }, &mut buf)?;
+    client.set_led(SetLed { num: 0, color: LedColor::Yellow }, &mut buf)?;
     println!("Server claims LED was set.");
 
     client.set_dimming(SetDimming::Hi, &mut buf)?;

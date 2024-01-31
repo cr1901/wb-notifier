@@ -201,7 +201,7 @@ async fn set_led_task<'a, 'ex>(
     key: Key,
     (sock, addr): (UdpSocket, SocketAddr),
     req_send: AsyncSend,
-    SetLed { row, col }: SetLed,
+    SetLed { num, color }: SetLed,
 ) {
     let mut buf = vec![0u8; 1024];
 
@@ -211,7 +211,7 @@ async fn set_led_task<'a, 'ex>(
     // rely on client to time out.
     let _ = req_send
         .send((
-            Request::Bargraph(cmds::Bargraph::SetLed { row, col }),
+            Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }),
             resp_send,
         ))
         .await;

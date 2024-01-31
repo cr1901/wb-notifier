@@ -8,22 +8,10 @@ use std::fmt;
 use ht16k33::{Display, DisplayData, LedLocation, Oscillator, COMMONS_SIZE, HT16K33, ROWS_SIZE};
 
 pub use ht16k33::Dimming;
+pub use wb_notifier_proto::LedColor;
 
 pub struct Bargraph<I2C> {
     drv: HT16K33<I2C>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-/// LED colors.
-pub enum LedColor {
-    /// Turn off both the Red & Green LEDs.
-    Off,
-    /// Turn on only the Green LED.
-    Green,
-    /// Turn on only the Red LED.
-    Red,
-    /// Turn on both the Red  & Green LEDs.
-    Yellow,
 }
 
 #[derive(Debug, Clone)]
@@ -65,13 +53,6 @@ where
     pub fn initialize(&mut self) -> Result<(), Error<E>> {
         self.drv.initialize()?;
         self.drv.set_display(Display::ON)?;
-
-        Ok(())
-    }
-
-    pub fn set_led(&mut self, row: u8, col: u8, enabled: bool) -> Result<(), Error<E>> {
-        let led = LedLocation::new(row, col).map_err(|_| Error::OutOfRange)?;
-        self.drv.set_led(led, enabled)?;
 
         Ok(())
     }
