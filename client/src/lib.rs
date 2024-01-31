@@ -9,7 +9,7 @@ use postcard::{self, from_bytes};
 use postcard_rpc::headered::{extract_header_from_bytes, to_slice_keyed};
 use postcard_rpc::Key;
 use serde::{de, ser};
-use wb_notifier_proto::{Echo, EchoResponse, SetLed, SetLedResponse, ECHO, SETLED_PATH};
+use wb_notifier_proto::{Echo, EchoResponse, SetLed, SetLedResponse, ECHO_PATH, SETLED_PATH};
 
 pub struct Client {
     sock: Option<UdpSocket>,
@@ -87,7 +87,7 @@ impl Client {
     where
         S: Into<Echo>,
     {
-        self.raw::<Echo, EchoResponse, _, _, _>(ECHO, msg.into(), buf)
+        self.raw::<Echo, EchoResponse, _, _, _>(ECHO_PATH, msg.into(), buf)
     }
 
     pub fn set_led<RC>(&mut self, row_col: RC, buf: &mut [u8]) -> Result<(), Error>
