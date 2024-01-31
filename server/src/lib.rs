@@ -1,4 +1,4 @@
-use async_channel::{bounded, Sender};
+use async_channel::{bounded, Sender, Receiver};
 use async_executor::LocalExecutor;
 use async_net::{SocketAddr, UdpSocket};
 use linux_embedded_hal::I2cdev;
@@ -13,14 +13,16 @@ use std::io;
 use std::rc::Rc;
 use std::thread;
 
-use wb_notifier_driver::cmds::{self, InitFailure};
-use wb_notifier_driver::bargraph;
+use wb_notifier_driver::cmds::InitFailure;
 use wb_notifier_driver::{self, Request, Response};
 use wb_notifier_proto::*;
+
+mod tasks;
 
 endpoint!(EchoEndpoint, Echo, EchoResponse, "debug/echo");
 endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
 endpoint!(SetDimmingEndpoint, SetDimming, SetDimmingResponse, "led/dimming");
+endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/ack");
 
 pub struct Server {
     addr: SocketAddr,
@@ -28,6 +30,7 @@ pub struct Server {
 }
 
 type AsyncSend = Sender<(Request, Sender<Response>)>;
+type AsyncRecv = Receiver<(Request, Sender<Response>)>;
 
 struct Context<'ex, 'b> {
     ex: &'b Rc<LocalExecutor<'ex>>,
@@ -144,6 +147,9 @@ impl Server {
         dispatch
             .add_handler::<SetDimmingEndpoint>(set_dimming_handler)
             .map_err(|s| Error::Init(s))?;
+        dispatch
+            .add_handler::<NotifyEndpoint>(notify_handler)
+            .map_err(|s| Error::Init(s))?;
         dispatch.context().send = Some(sensor_send);
 
         loop {
@@ -184,7 +190,7 @@ fn set_led_handler<'ex, 'b>(
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
-        set_led_task(
+        tasks::handlers::set_led(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
@@ -193,39 +199,6 @@ fn set_led_handler<'ex, 'b>(
             msg,
         )
     })
-}
-
-async fn set_led_task<'a, 'ex>(
-    _ex: Rc<LocalExecutor<'ex>>,
-    seq_no: u32,
-    key: Key,
-    (sock, addr): (UdpSocket, SocketAddr),
-    req_send: AsyncSend,
-    SetLed { num, color }: SetLed,
-) {
-    let mut buf = vec![0u8; 1024];
-
-    let (resp_send, resp_recv) = bounded(1);
-
-    // For now, we give up on any send/recv/downcast/deserialize errors and
-    // rely on client to time out.
-    let _ = req_send
-        .send((
-            Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }),
-            resp_send,
-        ))
-        .await;
-
-    let res = resp_recv
-        .recv()
-        .await
-        .map(|r| r.downcast::<Result<(), ()>>().unwrap());
-
-    if let Ok(resp) = res.as_deref() {
-        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
-            let _ = sock.send_to(used, addr).await;
-        }
-    }
 }
 
 fn set_dimming_handler<'ex, 'b>(
@@ -234,7 +207,7 @@ fn set_dimming_handler<'ex, 'b>(
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
-        set_dimming_task(
+        tasks::handlers::set_dimming(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
@@ -245,46 +218,21 @@ fn set_dimming_handler<'ex, 'b>(
     })
 }
 
-async fn set_dimming_task<'a, 'ex>(
-    _ex: Rc<LocalExecutor<'ex>>,
-    seq_no: u32,
-    key: Key,
-    (sock, addr): (UdpSocket, SocketAddr),
-    req_send: AsyncSend,
-    dimming: SetDimming
-) {
-    let mut buf = vec![0u8; 1024];
-
-    let (resp_send, resp_recv) = bounded(1);
-
-    let req = match dimming {
-        SetDimming::Hi => {
-            bargraph::Dimming::BRIGHTNESS_16_16
-        },
-        SetDimming::Lo => {
-            bargraph::Dimming::BRIGHTNESS_16_16
-        },
-    };
-
-    // For now, we give up on any send/recv/downcast/deserialize errors and
-    // rely on client to time out.
-    let _ = req_send
-        .send((
-            Request::Bargraph(cmds::Bargraph::SetBrightness { pwm: req }),
-            resp_send,
-        ))
-        .await;
-
-    let res = resp_recv
-        .recv()
-        .await
-        .map(|r| r.downcast::<Result<(), ()>>().unwrap());
-
-    if let Ok(resp) = res.as_deref() {
-        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
-            let _ = sock.send_to(used, addr).await;
-        }
-    }
+fn notify_handler<'ex, 'b>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'ex, 'b>,
+    bytes: &[u8],
+) -> Result<(), Error> {
+    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+        tasks::handlers::notify(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            ctx.send.clone().unwrap(),
+            msg,
+        )
+    })
 }
 
 fn echo_handler<'ex, 'b>(
@@ -293,7 +241,7 @@ fn echo_handler<'ex, 'b>(
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
-        echo_task(
+        tasks::handlers::echo(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
@@ -303,17 +251,4 @@ fn echo_handler<'ex, 'b>(
     })
 }
 
-async fn echo_task<'a, 'ex>(
-    _ex: Rc<LocalExecutor<'ex>>,
-    seq_no: u32,
-    key: Key,
-    (sock, addr): (UdpSocket, SocketAddr),
-    msg: String,
-) {
-    let resp = EchoResponse(msg.to_uppercase());
-    let mut buf = vec![0u8; 1024];
 
-    if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp, &mut buf) {
-        let _ = sock.send_to(used, addr).await;
-    }
-}

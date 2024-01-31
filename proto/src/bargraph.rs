@@ -1,6 +1,8 @@
 use super::*;
 
 pub const SET_LED_PATH: &str = "led/set";
+pub const NOTIFY_PATH: &str = "led/notify";
+pub const CLEAR_NOTIFY_PATH: &str = "led/ack";
 pub const SET_DIMMING_PATH: &str = "led/dimming";
 
 #[derive(Serialize, Deserialize, Schema)]
@@ -12,13 +14,6 @@ pub struct SetLed {
 // This is our Response type
 #[derive(Serialize, Deserialize, Schema)]
 pub struct SetLedResponse(pub Result<(), ()>);
-
-
-#[derive(Serialize, Deserialize, Schema)]
-pub enum SetDimming {
-    Lo,
-    Hi
-}
 
 #[derive(Serialize, Deserialize, Schema, Clone, Copy, Debug, PartialEq)]
 /// LED colors.
@@ -33,6 +28,39 @@ pub enum LedColor {
     Yellow,
 }
 
-// This is our Response type
+
+#[derive(Serialize, Deserialize, Schema)]
+pub enum SetDimming {
+    Lo,
+    Hi
+}
+
 #[derive(Serialize, Deserialize, Schema)]
 pub struct SetDimmingResponse(pub Result<(), ()>);
+
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct Notify {
+    pub num: u8,
+    pub status: Status
+}
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct NotifyResponse(pub Result<(), ()>);
+
+#[derive(Serialize, Deserialize, Schema)]
+pub enum Status {
+    Ok,
+    Warning,
+    Error
+}
+
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct Ack {
+    pub num: u8,
+    pub status: Status
+}
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct AckResponse(pub Result<(), ()>);
