@@ -35,7 +35,7 @@ impl fmt::Display for Error {
             Error::BadResponse(_) => write!(f, "unexpected response seq no and key"),
             Error::NoResponse(_) => write!(f, "no response from server before timeout"),
             Error::Parse(_) => write!(f, "could not ser/deserialize RPC call"),
-            Error::RequestFailed => write!(f, "server could not honor request")
+            Error::RequestFailed => write!(f, "server could not honor request"),
         }
     }
 }
@@ -94,11 +94,12 @@ impl Client {
     where
         RC: Into<SetLed>,
     {
-        let resp: SetLedResponse  = self.raw::<SetLed, SetLedResponse, _, _, _>(SETLED_PATH, row_col.into(), buf)?;
+        let resp: SetLedResponse =
+            self.raw::<SetLed, SetLedResponse, _, _, _>(SETLED_PATH, row_col.into(), buf)?;
 
         match resp.0 {
             Ok(()) => Ok(()),
-            Err(()) => Err(Error::RequestFailed)
+            Err(()) => Err(Error::RequestFailed),
         }
     }
 
@@ -112,19 +113,21 @@ impl Client {
         S: AsRef<str>,
         RQ: Into<PRQ>,
         PRQ: Schema + ser::Serialize,
-        PRS: Schema + de::Deserialize<'de> + Into<RS>
+        PRS: Schema + de::Deserialize<'de> + Into<RS>,
     {
         let key = Key::for_path::<PRQ>(endpoint.as_ref());
 
         let req = to_slice_keyed(0, key, &payload.into(), buf)?;
         self.sock.as_mut().ok_or(Error::NotConnected)?.send(&req)?;
 
-        self.sock.as_mut().ok_or(Error::NotConnected)?.recv(buf).map_err(|e| {
-            match e.kind() {
+        self.sock
+            .as_mut()
+            .ok_or(Error::NotConnected)?
+            .recv(buf)
+            .map_err(|e| match e.kind() {
                 io::ErrorKind::WouldBlock => Error::NoResponse((0, key)),
-                _ => Error::Io(e)
-            }
-        })?;
+                _ => Error::Io(e),
+            })?;
         let (hdr, rest) = extract_header_from_bytes(buf)?;
         if hdr.seq_no == 0 && hdr.key == key {
             let payload = from_bytes::<PRS>(&rest)?;

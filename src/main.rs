@@ -1,14 +1,14 @@
 use eyre::{eyre, Result};
 
-#[cfg(feature="server")]
+#[cfg(feature = "server")]
 mod server {
     pub use smol;
     pub use wb_notifier_proto::Device;
     pub use wb_notifier_server::Server;
 
     pub use smol::LocalExecutor;
-    pub use std::rc::Rc;
     pub use std::net::Ipv4Addr;
+    pub use std::rc::Rc;
 
     pub use argh::{self, FromArgs};
     pub use config::Config;
@@ -26,7 +26,7 @@ mod server {
         #[allow(unused)]
         pub relaxed: bool,
         /// port to bind to
-        #[argh(option, short = 'p', default="12000")]
+        #[argh(option, short = 'p', default = "12000")]
         pub port: u16,
         /// i2c bus to connect to
         #[argh(positional)]
@@ -39,10 +39,10 @@ mod server {
     }
 }
 
-#[cfg(feature="server")]
+#[cfg(feature = "server")]
 use server::*;
 
-#[cfg(feature="server")]
+#[cfg(feature = "server")]
 fn main() -> Result<()> {
     let args: ServerArgs = argh::from_env();
     let dirs = ProjectDirs::from("", "", "wb-notifier")
@@ -64,14 +64,13 @@ fn main() -> Result<()> {
             .try_deserialize::<WbInfo>()?
     };
 
-
     let server = Server::new((Ipv4Addr::new(0, 0, 0, 0), args.port).into(), cfgs.devices);
     let ex = Rc::new(LocalExecutor::new());
     smol::block_on(ex.run(server.main_loop(ex.clone())))?;
     Ok(())
 }
 
-#[cfg(not(feature="server"))]
+#[cfg(not(feature = "server"))]
 fn main() -> Result<()> {
     println!("server feature not enabled");
 

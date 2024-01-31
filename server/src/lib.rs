@@ -22,7 +22,7 @@ endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
 
 pub struct Server {
     addr: SocketAddr,
-    devices: Vec<Device>
+    devices: Vec<Device>,
 }
 
 type AsyncSend = Sender<(Request, Sender<Response>)>;
@@ -115,8 +115,9 @@ impl Server {
 
         thread::spawn(move || wb_notifier_driver::main_loop(i2c, sensor_recv));
 
-        self.devices.iter().map(
-            |d| {
+        self.devices
+            .iter()
+            .map(|d| {
                 let init_res = self.send_init_msg(&sensor_send, d)?;
 
                 if let Err(e) = init_res
@@ -125,12 +126,12 @@ impl Server {
                     .unwrap()
                 {
                     println!("{:?}", e);
-                    return Err(Error::Init("sensor thread failed to initialize"))
+                    return Err(Error::Init("sensor thread failed to initialize"));
                 }
 
                 Ok(())
-            }
-        ).collect::<Result<Vec<()>,_>>()?;
+            })
+            .collect::<Result<Vec<()>, _>>()?;
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)

@@ -39,17 +39,19 @@ where
     loop {
         if let Ok((req, resp)) = cmd.recv_blocking() {
             match req {
-                Request::Init(d) => {
-                    match d {
-                        Device { name: _, addr, driver: Driver::Bargraph } => {
-                            if let Err(cmds::InitFailure::RespChannelClosed) =
-                                bargraph_init(&manager, &mut sensors, &resp, addr)
-                            {
-                                break;
-                            }
+                Request::Init(d) => match d {
+                    Device {
+                        name: _,
+                        addr,
+                        driver: Driver::Bargraph,
+                    } => {
+                        if let Err(cmds::InitFailure::RespChannelClosed) =
+                            bargraph_init(&manager, &mut sensors, &resp, addr)
+                        {
+                            break;
                         }
-                        _ => {}
                     }
+                    _ => {}
                 },
                 Request::Bargraph(cmds::Bargraph::SetLed { row, col }) => {
                     let msg: Box<Result<(), _>>;
@@ -59,7 +61,7 @@ where
                         None => {
                             // TODO: Create an error type for UninitializedDevice
                             // or similar.
-                            continue
+                            continue;
                         }
                     };
 
@@ -95,7 +97,8 @@ where
     if let Err(e) = bg.initialize() {
         match e {
             bargraph::Error::Hal(_) => {
-                let msg: Box<Result<(), _>> = Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
+                let msg: Box<Result<(), _>> =
+                    Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
                 } else {
@@ -109,7 +112,8 @@ where
     if let Err(e) = bg.set_dimming(bargraph::Dimming::BRIGHTNESS_3_16) {
         match e {
             bargraph::Error::Hal(_) => {
-                let msg: Box<Result<(), _>> = Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
+                let msg: Box<Result<(), _>> =
+                    Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
                 } else {
@@ -128,4 +132,3 @@ where
         return Ok(());
     }
 }
-
