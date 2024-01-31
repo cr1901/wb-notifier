@@ -3,6 +3,7 @@ use std::any::Any;
 use async_channel::{Receiver, Sender};
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 use shared_bus::{BusManagerSimple, I2cProxy, NullMutex};
+use wb_notifier_proto::{Device, Driver};
 
 pub mod bargraph;
 pub mod cmds;
@@ -21,6 +22,12 @@ impl<'a, I2C> Sensors<'a, I2C> {
     }
 }
 
+pub enum Request {
+    Init(Device),
+    Bargraph(cmds::Bargraph),
+    LoopDeinit,
+}
+
 pub fn main_loop<I2C, E>(bus: I2C, cmd: AsyncRecv)
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
@@ -32,17 +39,31 @@ where
     loop {
         if let Ok((req, resp)) = cmd.recv_blocking() {
             match req {
-                Request::LoopInit => {
-                    if let Err(cmds::InitFailure::RespChannelClosed) =
-                        init(&manager, &mut sensors, &resp)
-                    {
-                        break;
+                Request::Init(d) => {
+                    match d {
+                        Device { name: _, addr, driver: Driver::Bargraph } => {
+                            if let Err(cmds::InitFailure::RespChannelClosed) =
+                                bargraph_init(&manager, &mut sensors, &resp, addr)
+                            {
+                                break;
+                            }
+                        }
+                        _ => {}
                     }
-                }
+                },
                 Request::Bargraph(cmds::Bargraph::SetLed { row, col }) => {
                     let msg: Box<Result<(), _>>;
 
-                    if let Err(_) = sensors.bargraph.as_mut().unwrap().set_led(row, col, true) {
+                    let bg = match sensors.bargraph.as_mut() {
+                        Some(bg) => bg,
+                        None => {
+                            // TODO: Create an error type for UninitializedDevice
+                            // or similar.
+                            continue
+                        }
+                    };
+
+                    if let Err(_) = bg.set_led(row, col, true) {
                         msg = Box::new(Err(()));
                     } else {
                         msg = Box::new(Ok(()));
@@ -58,10 +79,11 @@ where
     }
 }
 
-fn init<'a, I2C, E>(
+fn bargraph_init<'a, I2C, E>(
     manager: &'a BusManagerSimple<I2C>,
     sensors: &mut Sensors<'a, I2C>,
     resp: &Sender<Response>,
+    addr: u8,
 ) -> Result<(), cmds::InitFailure>
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
@@ -69,15 +91,15 @@ where
 {
     let i2c = manager.acquire_i2c();
 
-    let mut bg = bargraph::Bargraph::new(i2c, 0x70);
+    let mut bg = bargraph::Bargraph::new(i2c, addr);
     if let Err(e) = bg.initialize() {
         match e {
             bargraph::Error::Hal(_) => {
-                let msg: Box<Result<(), _>> = Box::new(Err(cmds::InitFailure::Bargraph));
+                let msg: Box<Result<(), _>> = Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
                 } else {
-                    return Err(cmds::InitFailure::Bargraph);
+                    return Err(cmds::InitFailure::Driver(Driver::Bargraph));
                 }
             }
             bargraph::Error::OutOfRange => unreachable!(),
@@ -87,11 +109,11 @@ where
     if let Err(e) = bg.set_dimming(bargraph::Dimming::BRIGHTNESS_3_16) {
         match e {
             bargraph::Error::Hal(_) => {
-                let msg: Box<Result<(), _>> = Box::new(Err(cmds::InitFailure::Bargraph));
+                let msg: Box<Result<(), _>> = Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
                 } else {
-                    return Err(cmds::InitFailure::Bargraph);
+                    return Err(cmds::InitFailure::Driver(Driver::Bargraph));
                 }
             }
             bargraph::Error::OutOfRange => unreachable!(),
@@ -105,11 +127,5 @@ where
     } else {
         return Ok(());
     }
-}
-
-pub enum Request {
-    LoopInit,
-    Bargraph(cmds::Bargraph),
-    LoopDeinit,
 }
 

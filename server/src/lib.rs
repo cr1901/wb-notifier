@@ -5,6 +5,7 @@ use linux_embedded_hal::I2cdev;
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
 
+use std::any::Any;
 use std::error;
 use std::fmt;
 use std::future::Future;
@@ -21,6 +22,7 @@ endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
 
 pub struct Server {
     addr: SocketAddr,
+    devices: Vec<Device>
 }
 
 type AsyncSend = Sender<(Request, Sender<Response>)>;
@@ -87,13 +89,20 @@ impl error::Error for Error {
 }
 
 impl Server {
-    pub fn new() -> Self {
-        Self { addr: "0.0.0.0:12000".parse().unwrap() }
+    pub fn new(addr: SocketAddr, devices: Vec<Device>) -> Self {
+        Self { addr, devices }
     }
 
-    pub fn set_port(&mut self, new_port: u16)
-    {
-        self.addr.set_port(new_port)
+    fn send_init_msg(&self, send: &AsyncSend, dev: &Device) -> Result<Box<dyn Any + Send>, Error> {
+        let (resp_send, resp_recv) = bounded(1);
+        send.send_blocking((Request::Init(dev.clone()), resp_send))
+            .map_err(|_| Error::Init("sensor thread closed send channel"))?;
+
+        let init_res = resp_recv
+            .recv_blocking()
+            .map_err(|_| Error::Init("did not receive response from sensor thread"))?;
+
+        Ok(init_res)
     }
 
     pub async fn main_loop(self, ex: Rc<LocalExecutor<'_>>) -> Result<(), Error> {
@@ -106,25 +115,22 @@ impl Server {
 
         thread::spawn(move || wb_notifier_driver::main_loop(i2c, sensor_recv));
 
-        let (resp_send, resp_recv) = bounded(1);
-        sensor_send
-            .send((Request::LoopInit, resp_send))
-            .await
-            .map_err(|_| Error::Init("sensor thread closed send channel"))?;
+        self.devices.iter().map(
+            |d| {
+                let init_res = self.send_init_msg(&sensor_send, d)?;
 
-        let init_res = resp_recv
-            .recv()
-            .await
-            .map_err(|_| Error::Init("did not receive response from sensor thread"))?;
+                if let Err(e) = init_res
+                    .downcast::<Result<(), InitFailure>>()
+                    .as_deref()
+                    .unwrap()
+                {
+                    println!("{:?}", e);
+                    return Err(Error::Init("sensor thread failed to initialize"))
+                }
 
-        if let Err(e) = init_res
-            .downcast::<Result<(), InitFailure>>()
-            .as_deref()
-            .unwrap()
-        {
-            println!("{:?}", e);
-            return Err(Error::Init("sensor thread failed to initialize"));
-        }
+                Ok(())
+            }
+        ).collect::<Result<Vec<()>,_>>()?;
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)

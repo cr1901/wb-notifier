@@ -2,6 +2,7 @@
 
 use super::bargraph::*;
 use ht16k33::Dimming;
+use wb_notifier_proto::{Device, Driver};
 
 #[derive(Debug)]
 pub enum Bargraph {
@@ -18,6 +19,7 @@ pub enum Bargraph {
 
 #[derive(Debug)]
 pub enum InitFailure {
-    Bargraph,
+    Driver(Driver),
+    DeviceNotFound(Device),
     RespChannelClosed,
 }

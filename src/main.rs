@@ -3,10 +3,12 @@ use eyre::{eyre, Result};
 #[cfg(feature="server")]
 mod server {
     pub use smol;
+    pub use wb_notifier_proto::Device;
     pub use wb_notifier_server::Server;
 
     pub use smol::LocalExecutor;
     pub use std::rc::Rc;
+    pub use std::net::Ipv4Addr;
 
     pub use argh::{self, FromArgs};
     pub use config::Config;
@@ -24,8 +26,8 @@ mod server {
         #[allow(unused)]
         pub relaxed: bool,
         /// port to bind to
-        #[argh(option, short = 'p')]
-        pub port: Option<u16>,
+        #[argh(option, short = 'p', default="12000")]
+        pub port: u16,
         /// i2c bus to connect to
         #[argh(positional)]
         pub dev: String,
@@ -33,20 +35,7 @@ mod server {
 
     #[derive(Deserialize, Hash)]
     pub struct WbInfo {
-        devices: Vec<Device>,
-    }
-
-    #[derive(Deserialize, Hash)]
-    pub struct Device {
-        pub name: String,
-        pub addr: u8,
-        pub driver: Driver,
-    }
-
-    #[derive(Deserialize, Hash)]
-    pub enum Driver {
-        Bargraph,
-        Hd44780,
+        pub devices: Vec<Device>,
     }
 }
 
@@ -75,7 +64,8 @@ fn main() -> Result<()> {
             .try_deserialize::<WbInfo>()?
     };
 
-    let server = Server::new();
+
+    let server = Server::new((Ipv4Addr::new(0, 0, 0, 0), args.port).into(), cfgs.devices);
     let ex = Rc::new(LocalExecutor::new());
     smol::block_on(ex.run(server.main_loop(ex.clone())))?;
     Ok(())
