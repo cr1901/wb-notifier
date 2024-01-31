@@ -3,7 +3,7 @@ use eyre::Result;
 #[cfg(feature = "client")]
 mod client {
     pub use wb_notifier_client::Client;
-    pub use wb_notifier_proto::{Echo, EchoResponse, SetLed};
+    pub use wb_notifier_proto::*;
 }
 
 #[cfg(feature = "client")]
@@ -20,6 +20,9 @@ fn main() -> Result<()> {
 
     client.set_led(SetLed { row: 0, col: 0 }, &mut buf)?;
     println!("Server claims LED was set.");
+
+    client.set_dimming(SetDimming::Hi, &mut buf)?;
+    println!("Server claims dimming was set.");
 
     let res: Result<String, _> =
         client.raw::<Echo, EchoResponse, _, _, _>("bad/path", "hello!", &mut buf);

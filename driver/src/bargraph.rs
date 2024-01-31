@@ -7,7 +7,7 @@ use std::fmt;
 #[allow(unused)]
 use ht16k33::{Display, DisplayData, LedLocation, Oscillator, COMMONS_SIZE, HT16K33, ROWS_SIZE};
 
-pub(crate) use ht16k33::Dimming;
+pub use ht16k33::Dimming;
 
 pub struct Bargraph<I2C> {
     drv: HT16K33<I2C>,

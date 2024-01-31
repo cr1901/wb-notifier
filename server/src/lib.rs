@@ -14,11 +14,13 @@ use std::rc::Rc;
 use std::thread;
 
 use wb_notifier_driver::cmds::{self, InitFailure};
+use wb_notifier_driver::bargraph;
 use wb_notifier_driver::{self, Request, Response};
 use wb_notifier_proto::*;
 
 endpoint!(EchoEndpoint, Echo, EchoResponse, "debug/echo");
 endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
+endpoint!(SetDimmingEndpoint, SetDimming, SetDimmingResponse, "led/dimming");
 
 pub struct Server {
     addr: SocketAddr,
@@ -139,6 +141,9 @@ impl Server {
         dispatch
             .add_handler::<SetLedEndpoint>(set_led_handler)
             .map_err(|s| Error::Init(s))?;
+        dispatch
+            .add_handler::<SetDimmingEndpoint>(set_dimming_handler)
+            .map_err(|s| Error::Init(s))?;
         dispatch.context().send = Some(sensor_send);
 
         loop {
@@ -207,6 +212,65 @@ async fn set_led_task<'a, 'ex>(
     let _ = req_send
         .send((
             Request::Bargraph(cmds::Bargraph::SetLed { row, col }),
+            resp_send,
+        ))
+        .await;
+
+    let res = resp_recv
+        .recv()
+        .await
+        .map(|r| r.downcast::<Result<(), ()>>().unwrap());
+
+    if let Ok(resp) = res.as_deref() {
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
+            let _ = sock.send_to(used, addr).await;
+        }
+    }
+}
+
+fn set_dimming_handler<'ex, 'b>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'ex, 'b>,
+    bytes: &[u8],
+) -> Result<(), Error> {
+    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+        set_dimming_task(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            ctx.send.clone().unwrap(),
+            msg,
+        )
+    })
+}
+
+async fn set_dimming_task<'a, 'ex>(
+    _ex: Rc<LocalExecutor<'ex>>,
+    seq_no: u32,
+    key: Key,
+    (sock, addr): (UdpSocket, SocketAddr),
+    req_send: AsyncSend,
+    dimming: SetDimming
+) {
+    let mut buf = vec![0u8; 1024];
+
+    let (resp_send, resp_recv) = bounded(1);
+
+    let req = match dimming {
+        SetDimming::Hi => {
+            bargraph::Dimming::BRIGHTNESS_16_16
+        },
+        SetDimming::Lo => {
+            bargraph::Dimming::BRIGHTNESS_16_16
+        },
+    };
+
+    // For now, we give up on any send/recv/downcast/deserialize errors and
+    // rely on client to time out.
+    let _ = req_send
+        .send((
+            Request::Bargraph(cmds::Bargraph::SetBrightness { pwm: req }),
             resp_send,
         ))
         .await;

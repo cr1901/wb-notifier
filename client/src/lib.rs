@@ -9,7 +9,7 @@ use postcard::{self, from_bytes};
 use postcard_rpc::headered::{extract_header_from_bytes, to_slice_keyed};
 use postcard_rpc::Key;
 use serde::{de, ser};
-use wb_notifier_proto::{Echo, EchoResponse, SetLed, SetLedResponse, ECHO_PATH, SETLED_PATH};
+use wb_notifier_proto::*;
 
 pub struct Client {
     sock: Option<UdpSocket>,
@@ -95,7 +95,19 @@ impl Client {
         RC: Into<SetLed>,
     {
         let resp: SetLedResponse =
-            self.raw::<SetLed, SetLedResponse, _, _, _>(SETLED_PATH, row_col.into(), buf)?;
+            self.raw::<SetLed, SetLedResponse, _, _, _>(SET_LED_PATH, row_col.into(), buf)?;
+
+        match resp.0 {
+            Ok(()) => Ok(()),
+            Err(()) => Err(Error::RequestFailed),
+        }
+    }
+
+    pub fn set_dimming<PWM>(&mut self, pwm: PWM, buf: &mut [u8]) -> Result<(), Error>
+    where
+        PWM: Into<SetDimming>,
+    {
+        let resp: SetDimmingResponse = self.raw::<SetDimming, SetDimmingResponse, _, _, _>(SET_DIMMING_PATH, pwm.into(), buf)?;
 
         match resp.0 {
             Ok(()) => Ok(()),

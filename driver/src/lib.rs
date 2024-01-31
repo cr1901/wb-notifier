@@ -74,7 +74,29 @@ where
                     if resp.send_blocking(msg).is_err() {
                         break;
                     }
-                }
+                },
+                Request::Bargraph(cmds::Bargraph::SetBrightness { pwm }) => {
+                    let msg: Box<Result<(), _>>;
+
+                    let bg = match sensors.bargraph.as_mut() {
+                        Some(bg) => bg,
+                        None => {
+                            // TODO: Create an error type for UninitializedDevice
+                            // or similar.
+                            continue;
+                        }
+                    };
+
+                    if let Err(_) = bg.set_dimming(pwm) {
+                        msg = Box::new(Err(()));
+                    } else {
+                        msg = Box::new(Ok(()));
+                    }
+
+                    if resp.send_blocking(msg).is_err() {
+                        break;
+                    }
+                },
                 _ => unimplemented!(),
             }
         }
