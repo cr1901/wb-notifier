@@ -29,14 +29,16 @@ pub enum Request {
 }
 
 enum Error {
+    /// Uninitialized Device, etc. The loop should keep going.
     Transient,
-    Persistent
+    /// Lost channel connection, etc. The loop should end.
+    Persistent,
 }
 
 pub fn main_loop<I2C, E>(bus: I2C, cmd: AsyncRecv)
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
-    E: 'static,
+    E: 'static + Send,
 {
     let manager = BusManagerSimple::new(bus);
     let mut sensors = Sensors::new();
@@ -48,11 +50,15 @@ where
     }
 }
 
-fn main_loop_single_iter<'a, 'b, I2C, E>(cmd: &AsyncRecv, manager: &'b BusManagerSimple<I2C>, sensors: &mut Sensors<'a, I2C>) -> Result<(), Error>
+fn main_loop_single_iter<'a, 'b, I2C, E>(
+    cmd: &AsyncRecv,
+    manager: &'b BusManagerSimple<I2C>,
+    sensors: &mut Sensors<'a, I2C>,
+) -> Result<(), Error>
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
-    E: 'static,
-    'b: 'a
+    E: 'static + Send,
+    'b: 'a,
 {
     if let Ok((req, resp)) = cmd.recv_blocking() {
         match req {
@@ -65,142 +71,34 @@ where
                     if let Err(cmds::InitFailure::RespChannelClosed) =
                         bargraph_init(&manager, sensors, &resp, addr)
                     {
-                        return Err(Error::Persistent)
+                        return Err(Error::Persistent);
                     }
                 }
                 _ => {}
             },
             Request::Bargraph(cmds::Bargraph::SetBrightness { pwm }) => {
-                let msg: Box<Result<(), _>>;
-
-                let bg = match sensors.bargraph.as_mut() {
-                    Some(bg) => bg,
-                    None => {
-                        // TODO: Create an error type for UninitializedDevice
-                        // or similar.
-                        return Ok(())
-                    }
-                };
-
-                if let Err(_) = bg.set_dimming(pwm) {
-                    msg = Box::new(Err(()));
-                } else {
-                    msg = Box::new(Ok(()));
-                }
-
-                if resp.send_blocking(msg).is_err() {
-                    return Err(Error::Persistent);
-                }
+                do_bargraph(resp, sensors, |bg| bg.set_dimming(pwm))?;
             }
             Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }) => {
-                let msg: Box<Result<(), _>>;
-
-                let bg = match sensors.bargraph.as_mut() {
-                    Some(bg) => bg,
-                    None => {
-                        // TODO: Create an error type for UninitializedDevice
-                        // or similar.
-                        return Ok(());
-                    }
-                };
-
-                if let Err(_) = bg.set_led_no(num, color) {
-                    msg = Box::new(Err(()));
-                } else {
-                    msg = Box::new(Ok(()));
-                }
-
-                if resp.send_blocking(msg).is_err() {
-                    return Err(Error::Persistent);
-                }
+                do_bargraph(resp, sensors, |bg| bg.set_led_no(num, color))?;
             }
             Request::Bargraph(cmds::Bargraph::FastBlink) => {
-                let msg: Box<Result<(), _>>;
-
-                let bg = match sensors.bargraph.as_mut() {
-                    Some(bg) => bg,
-                    None => {
-                        // TODO: Create an error type for UninitializedDevice
-                        // or similar.
-                        return Ok(());
-                    }
-                };
-
-                if let Err(_) = bg.set_display(bargraph::Display::TWO_HZ) {
-                    msg = Box::new(Err(()));
-                } else {
-                    msg = Box::new(Ok(()));
-                }
-
-                if resp.send_blocking(msg).is_err() {
-                    return Err(Error::Persistent);
-                }
+                do_bargraph(resp, sensors, |bg| {
+                    bg.set_display(bargraph::Display::TWO_HZ)
+                })?;
             }
             Request::Bargraph(cmds::Bargraph::MediumBlink) => {
-                let msg: Box<Result<(), _>>;
-
-                let bg = match sensors.bargraph.as_mut() {
-                    Some(bg) => bg,
-                    None => {
-                        // TODO: Create an error type for UninitializedDevice
-                        // or similar.
-                        return Ok(());
-                    }
-                };
-
-                if let Err(_) = bg.set_display(bargraph::Display::ONE_HZ) {
-                    msg = Box::new(Err(()));
-                } else {
-                    msg = Box::new(Ok(()));
-                }
-
-                if resp.send_blocking(msg).is_err() {
-                    return Err(Error::Persistent);
-                }
+                do_bargraph(resp, sensors, |bg| {
+                    bg.set_display(bargraph::Display::ONE_HZ)
+                })?;
             }
             Request::Bargraph(cmds::Bargraph::SlowBlink) => {
-                let msg: Box<Result<(), _>>;
-
-                let bg = match sensors.bargraph.as_mut() {
-                    Some(bg) => bg,
-                    None => {
-                        // TODO: Create an error type for UninitializedDevice
-                        // or similar.
-                        return Ok(());
-                    }
-                };
-
-                if let Err(_) = bg.set_display(bargraph::Display::HALF_HZ) {
-                    msg = Box::new(Err(()));
-                } else {
-                    msg = Box::new(Ok(()));
-                }
-
-                if resp.send_blocking(msg).is_err() {
-                    return Err(Error::Persistent);
-                }
+                do_bargraph(resp, sensors, |bg| {
+                    bg.set_display(bargraph::Display::HALF_HZ)
+                })?;
             }
             Request::Bargraph(cmds::Bargraph::StopBlink) => {
-                let msg: Box<Result<(), _>>;
-
-                let bg = match sensors.bargraph.as_mut() {
-                    Some(bg) => bg,
-                    None => {
-                        // TODO: Create an error type for UninitializedDevice
-                        // or similar.
-                        return Ok(());
-                    }
-                };
-
-                if let Err(_) = bg.set_display(bargraph::Display::ON) {
-                    msg = Box::new(Err(()));
-                } else {
-                    msg = Box::new(Ok(()));
-                }
-
-                if resp.send_blocking(msg).is_err() {
-                    return Err(Error::Persistent);
-                }
+                do_bargraph(resp, sensors, |bg| bg.set_display(bargraph::Display::ON))?;
             }
             _ => unimplemented!(),
         }
@@ -219,7 +117,7 @@ fn bargraph_init<'a, I2C, E>(
 ) -> Result<(), cmds::InitFailure>
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
-    E: 'static,
+    E: 'static + Send,
 {
     let i2c = manager.acquire_i2c();
 
@@ -261,4 +159,27 @@ where
     } else {
         return Ok(());
     }
+}
+
+fn do_bargraph<'a, 'bg, I2C, I2CE, T, E, F>(
+    resp: Sender<Box<dyn Any + Send>>,
+    sensors: &'bg mut Sensors<'a, I2C>,
+    mut req: F,
+) -> Result<(), Error>
+where
+    I2C: Write<Error = I2CE> + WriteRead<Error = I2CE>,
+    I2CE: 'static,
+    F: FnMut(&'bg mut bargraph::Bargraph<I2cProxy<'a, NullMutex<I2C>>>) -> Result<T, E>,
+    T: Send + 'static,
+    E: Send + 'static,
+{
+    let bg = sensors.bargraph.as_mut().ok_or(Error::Transient)?;
+
+    let msg = Box::new(req(bg));
+
+    if resp.send_blocking(msg).is_err() {
+        return Err(Error::Persistent);
+    }
+
+    Ok(())
 }
