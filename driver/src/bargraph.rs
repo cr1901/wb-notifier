@@ -5,9 +5,10 @@ use std::error;
 use std::fmt;
 
 #[allow(unused)]
-use ht16k33::{Display, DisplayData, LedLocation, Oscillator, COMMONS_SIZE, HT16K33, ROWS_SIZE};
+use ht16k33::{DisplayData, LedLocation, Oscillator, COMMONS_SIZE, HT16K33, ROWS_SIZE};
 
 pub use ht16k33::Dimming;
+pub use ht16k33::Display;
 pub use wb_notifier_proto::LedColor;
 
 pub struct Bargraph<I2C> {

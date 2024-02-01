@@ -21,6 +21,9 @@ fn main() -> Result<()> {
     client.set_led(SetLed { num: 0, color: LedColor::Yellow }, &mut buf)?;
     println!("Server claims LED was set.");
 
+    client.notify(Notify { num: 1, status: Status::Ok }, &mut buf)?;
+    println!("Server claims LED was set/blink task started");
+
     client.set_dimming(SetDimming::Hi, &mut buf)?;
     println!("Server claims dimming was set.");
 

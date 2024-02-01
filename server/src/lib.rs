@@ -1,9 +1,11 @@
 use async_channel::{bounded, Sender, Receiver};
 use async_executor::LocalExecutor;
+use async_io::Timer;
 use async_net::{SocketAddr, UdpSocket};
 use linux_embedded_hal::I2cdev;
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
+use tasks::background::BlinkInfo;
 
 use std::any::Any;
 use std::error;
@@ -12,6 +14,7 @@ use std::future::Future;
 use std::io;
 use std::rc::Rc;
 use std::thread;
+use std::time::Duration;
 
 use wb_notifier_driver::cmds::InitFailure;
 use wb_notifier_driver::{self, Request, Response};
@@ -22,7 +25,7 @@ mod tasks;
 endpoint!(EchoEndpoint, Echo, EchoResponse, "debug/echo");
 endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
 endpoint!(SetDimmingEndpoint, SetDimming, SetDimmingResponse, "led/dimming");
-endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/ack");
+endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/notify");
 
 pub struct Server {
     addr: SocketAddr,
@@ -37,6 +40,7 @@ struct Context<'ex, 'b> {
     sock: UdpSocket,
     addr: Option<SocketAddr>,
     send: Option<AsyncSend>,
+    blink_send: Option<Sender<tasks::background::BlinkInfo>>
 }
 
 impl<'ex, 'b> Context<'ex, 'b> {
@@ -46,6 +50,7 @@ impl<'ex, 'b> Context<'ex, 'b> {
             sock,
             addr: None,
             send: None,
+            blink_send: None,
         }
     }
 }
@@ -134,6 +139,15 @@ impl Server {
                     return Err(Error::Init("sensor thread failed to initialize"));
                 }
 
+                match d.driver {
+                    Driver::Bargraph => {
+                        let (blink_send, blink_recv) = bounded(1);
+                        ex.spawn(tasks::background::blink(ex.clone(), sensor_send.clone(), blink_recv)).detach();
+                        dispatch.context().blink_send = Some(blink_send)
+                    },
+                    _ => { unimplemented!() }
+                }
+
                 Ok(())
             })
             .collect::<Result<Vec<()>, _>>()?;
@@ -162,6 +176,9 @@ impl Server {
                 }
             }
         }
+
+        #[allow(unreachable_code)]
+        Ok(())
     }
 }
 
@@ -230,6 +247,7 @@ fn notify_handler<'ex, 'b>(
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap().clone()),
             ctx.send.clone().unwrap(),
+            ctx.blink_send.clone().unwrap(),
             msg,
         )
     })

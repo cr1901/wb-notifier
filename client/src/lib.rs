@@ -103,6 +103,19 @@ impl Client {
         }
     }
 
+    pub fn notify<N>(&mut self, notify: N, buf: &mut [u8]) -> Result<(), Error>
+    where
+        N: Into<Notify>,
+    {
+        let resp: NotifyResponse =
+            self.raw::<Notify, NotifyResponse, _, _, _>(NOTIFY_PATH, notify.into(), buf)?;
+
+        match resp.0 {
+            Ok(()) => Ok(()),
+            Err(()) => Err(Error::RequestFailed),
+        }
+    }
+
     pub fn set_dimming<PWM>(&mut self, pwm: PWM, buf: &mut [u8]) -> Result<(), Error>
     where
         PWM: Into<SetDimming>,

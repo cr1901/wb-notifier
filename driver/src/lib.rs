@@ -97,6 +97,94 @@ where
                         break;
                     }
                 },
+                Request::Bargraph(cmds::Bargraph::FastBlink) => {
+                    let msg: Box<Result<(), _>>;
+
+                    let bg = match sensors.bargraph.as_mut() {
+                        Some(bg) => bg,
+                        None => {
+                            // TODO: Create an error type for UninitializedDevice
+                            // or similar.
+                            continue;
+                        }
+                    };
+
+                    if let Err(_) = bg.set_display(bargraph::Display::TWO_HZ) {
+                        msg = Box::new(Err(()));
+                    } else {
+                        msg = Box::new(Ok(()));
+                    }
+
+                    if resp.send_blocking(msg).is_err() {
+                        break;
+                    }
+                }
+                Request::Bargraph(cmds::Bargraph::MediumBlink) => {
+                    let msg: Box<Result<(), _>>;
+
+                    let bg = match sensors.bargraph.as_mut() {
+                        Some(bg) => bg,
+                        None => {
+                            // TODO: Create an error type for UninitializedDevice
+                            // or similar.
+                            continue;
+                        }
+                    };
+
+                    if let Err(_) = bg.set_display(bargraph::Display::ONE_HZ) {
+                        msg = Box::new(Err(()));
+                    } else {
+                        msg = Box::new(Ok(()));
+                    }
+
+                    if resp.send_blocking(msg).is_err() {
+                        break;
+                    }
+                }
+                Request::Bargraph(cmds::Bargraph::SlowBlink) => {
+                    let msg: Box<Result<(), _>>;
+
+                    let bg = match sensors.bargraph.as_mut() {
+                        Some(bg) => bg,
+                        None => {
+                            // TODO: Create an error type for UninitializedDevice
+                            // or similar.
+                            continue;
+                        }
+                    };
+
+                    if let Err(_) = bg.set_display(bargraph::Display::HALF_HZ) {
+                        msg = Box::new(Err(()));
+                    } else {
+                        msg = Box::new(Ok(()));
+                    }
+
+                    if resp.send_blocking(msg).is_err() {
+                        break;
+                    }
+                }
+                Request::Bargraph(cmds::Bargraph::StopBlink) => {
+                    let msg: Box<Result<(), _>>;
+
+                    let bg = match sensors.bargraph.as_mut() {
+                        Some(bg) => bg,
+                        None => {
+                            // TODO: Create an error type for UninitializedDevice
+                            // or similar.
+                            continue;
+                        }
+                    };
+
+                    if let Err(_) = bg.set_display(bargraph::Display::ON) {
+                        msg = Box::new(Err(()));
+                    } else {
+                        msg = Box::new(Ok(()));
+                    }
+
+                    if resp.send_blocking(msg).is_err() {
+                        break;
+                    }
+                }
                 _ => unimplemented!(),
             }
         }

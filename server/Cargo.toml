@@ -8,11 +8,12 @@ edition = "2021"
 [dependencies]
 async-channel = { version = "2.1.1", default-features = false }
 async-executor = { version = "1.8.0", default-features = false }
+async-io = { version = "2.3.1", default-features = false }
 async-net = "2.0.0"
+futures-lite = { version = "2.2.0", default-features = false }
 linux-embedded-hal = { version = "0.3.2", default_features = false, features = ["gpio_cdev"] }
 postcard = { version = "1.0.8", default_features = false, features = [ "use-std" ] }
 postcard-rpc = { version = "0.3.1", default-features = false }
 serde = { version = "1.0.195", default-features = false, features = [ "std" ] }
 wb-notifier-driver = { path = "../driver" }
 wb-notifier-proto = { path = "../proto" }
-
