@@ -120,7 +120,8 @@ impl Client {
     where
         PWM: Into<SetDimming>,
     {
-        let resp: SetDimmingResponse = self.raw::<SetDimming, SetDimmingResponse, _, _, _>(SET_DIMMING_PATH, pwm.into(), buf)?;
+        let resp: SetDimmingResponse =
+            self.raw::<SetDimming, SetDimmingResponse, _, _, _>(SET_DIMMING_PATH, pwm.into(), buf)?;
 
         match resp.0 {
             Ok(()) => Ok(()),

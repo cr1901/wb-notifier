@@ -103,7 +103,7 @@ pub(super) mod handlers {
         let color = match status {
             Status::Ok => LedColor::Green,
             Status::Warning => LedColor::Yellow,
-            Status::Error => LedColor::Red
+            Status::Error => LedColor::Red,
         };
 
         // For now, we give up on any send/recv/downcast/deserialize errors and
@@ -119,7 +119,6 @@ pub(super) mod handlers {
             .recv()
             .await
             .map(|r| r.downcast::<Result<(), ()>>().unwrap());
-
 
         let _ = blink_send.send(BlinkInfo::LedSet).await;
         if let Ok(resp) = res.as_deref() {
@@ -192,7 +191,6 @@ pub(super) mod background {
         LedClear,
     }
 
-
     pub async fn blink<'a, 'ex>(
         ex: Rc<LocalExecutor<'ex>>,
         req_send: AsyncSend,
@@ -211,12 +209,22 @@ pub(super) mod background {
                     curr_task = ex.spawn(future::pending());
                 }
                 BlinkState::Off => {
-                    let _ = req_send.send((Request::Bargraph(cmds::Bargraph::StopBlink), driver_resp_send.clone())).await;
+                    let _ = req_send
+                        .send((
+                            Request::Bargraph(cmds::Bargraph::StopBlink),
+                            driver_resp_send.clone(),
+                        ))
+                        .await;
                     let _ = driver_resp_recv.recv().await;
                     curr_task = ex.spawn(future::pending());
                 }
                 BlinkState::Fast => {
-                    let _ = req_send.send((Request::Bargraph(cmds::Bargraph::FastBlink), driver_resp_send.clone())).await;
+                    let _ = req_send
+                        .send((
+                            Request::Bargraph(cmds::Bargraph::FastBlink),
+                            driver_resp_send.clone(),
+                        ))
+                        .await;
                     let _ = driver_resp_recv.recv().await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(60),
@@ -224,7 +232,12 @@ pub(super) mod background {
                     ));
                 }
                 BlinkState::Med => {
-                    let _ = req_send.send((Request::Bargraph(cmds::Bargraph::MediumBlink), driver_resp_send.clone())).await;
+                    let _ = req_send
+                        .send((
+                            Request::Bargraph(cmds::Bargraph::MediumBlink),
+                            driver_resp_send.clone(),
+                        ))
+                        .await;
                     let _ = driver_resp_recv.recv().await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(300),
@@ -232,7 +245,12 @@ pub(super) mod background {
                     ));
                 }
                 BlinkState::Slow => {
-                    let _ = req_send.send((Request::Bargraph(cmds::Bargraph::SlowBlink), driver_resp_send.clone())).await;
+                    let _ = req_send
+                        .send((
+                            Request::Bargraph(cmds::Bargraph::SlowBlink),
+                            driver_resp_send.clone(),
+                        ))
+                        .await;
                     let _ = driver_resp_recv.recv().await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(900),
@@ -272,9 +290,9 @@ pub(super) mod background {
 
                     match led {
                         BlinkInfo::LedSet => state = BlinkState::Fast,
-                        BlinkInfo::LedClear => state = BlinkState::Off
-                    }  
-                },
+                        BlinkInfo::LedClear => state = BlinkState::Off,
+                    }
+                }
                 FinishedFirst::Us(Err(_)) => {
                     curr_task.cancel().await;
                     break;

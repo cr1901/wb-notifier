@@ -74,7 +74,7 @@ where
                     if resp.send_blocking(msg).is_err() {
                         break;
                     }
-                },
+                }
                 Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }) => {
                     let msg: Box<Result<(), _>>;
 
@@ -96,7 +96,7 @@ where
                     if resp.send_blocking(msg).is_err() {
                         break;
                     }
-                },
+                }
                 Request::Bargraph(cmds::Bargraph::FastBlink) => {
                     let msg: Box<Result<(), _>>;
 

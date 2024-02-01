@@ -1,4 +1,4 @@
-use async_channel::{bounded, Sender, Receiver};
+use async_channel::{bounded, Receiver, Sender};
 use async_executor::LocalExecutor;
 use async_io::Timer;
 use async_net::{SocketAddr, UdpSocket};
@@ -24,7 +24,12 @@ mod tasks;
 
 endpoint!(EchoEndpoint, Echo, EchoResponse, "debug/echo");
 endpoint!(SetLedEndpoint, SetLed, SetLedResponse, "led/set");
-endpoint!(SetDimmingEndpoint, SetDimming, SetDimmingResponse, "led/dimming");
+endpoint!(
+    SetDimmingEndpoint,
+    SetDimming,
+    SetDimmingResponse,
+    "led/dimming"
+);
 endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/notify");
 
 pub struct Server {
@@ -40,7 +45,7 @@ struct Context<'ex, 'b> {
     sock: UdpSocket,
     addr: Option<SocketAddr>,
     send: Option<AsyncSend>,
-    blink_send: Option<Sender<tasks::background::BlinkInfo>>
+    blink_send: Option<Sender<tasks::background::BlinkInfo>>,
 }
 
 impl<'ex, 'b> Context<'ex, 'b> {
@@ -142,10 +147,17 @@ impl Server {
                 match d.driver {
                     Driver::Bargraph => {
                         let (blink_send, blink_recv) = bounded(1);
-                        ex.spawn(tasks::background::blink(ex.clone(), sensor_send.clone(), blink_recv)).detach();
+                        ex.spawn(tasks::background::blink(
+                            ex.clone(),
+                            sensor_send.clone(),
+                            blink_recv,
+                        ))
+                        .detach();
                         dispatch.context().blink_send = Some(blink_send)
-                    },
-                    _ => { unimplemented!() }
+                    }
+                    _ => {
+                        unimplemented!()
+                    }
                 }
 
                 Ok(())
@@ -268,5 +280,3 @@ fn echo_handler<'ex, 'b>(
         )
     })
 }
-
-

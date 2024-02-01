@@ -18,10 +18,22 @@ fn main() -> Result<()> {
     let resp = client.echo("hello!", &mut buf)?;
     println!("{}", resp);
 
-    client.set_led(SetLed { num: 0, color: LedColor::Yellow }, &mut buf)?;
+    client.set_led(
+        SetLed {
+            num: 0,
+            color: LedColor::Yellow,
+        },
+        &mut buf,
+    )?;
     println!("Server claims LED was set.");
 
-    client.notify(Notify { num: 1, status: Status::Ok }, &mut buf)?;
+    client.notify(
+        Notify {
+            num: 1,
+            status: Status::Ok,
+        },
+        &mut buf,
+    )?;
     println!("Server claims LED was set/blink task started");
 
     client.set_dimming(SetDimming::Hi, &mut buf)?;
