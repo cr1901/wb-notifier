@@ -9,11 +9,9 @@ use wb_notifier_driver::cmds;
 use wb_notifier_driver::{self, Request};
 use wb_notifier_proto::*;
 
-use super::{AsyncRecv, AsyncSend};
+use super::AsyncSend;
 
 pub(super) mod handlers {
-    use async_channel::Receiver;
-
     use super::*;
     use background::BlinkInfo;
 
@@ -135,7 +133,7 @@ pub(super) mod handlers {
         (sock, addr): (UdpSocket, SocketAddr),
         req_send: AsyncSend,
         blink_send: Sender<BlinkInfo>,
-        Ack { num }: Ack
+        Ack { num }: Ack,
     ) {
         let mut buf = vec![0u8; 1024];
         let (resp_send, resp_recv) = bounded(1);
@@ -143,7 +141,10 @@ pub(super) mod handlers {
         // rely on client to time out.
         let _ = req_send
             .send((
-                Request::Bargraph(cmds::Bargraph::SetLedNo { num, color: LedColor::Off }),
+                Request::Bargraph(cmds::Bargraph::SetLedNo {
+                    num,
+                    color: LedColor::Off,
+                }),
                 resp_send,
             ))
             .await;

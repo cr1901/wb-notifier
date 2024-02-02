@@ -1,11 +1,9 @@
-use async_channel::{bounded, Receiver, Sender};
+use async_channel::{bounded, Sender};
 use async_executor::LocalExecutor;
-use async_io::Timer;
 use async_net::{SocketAddr, UdpSocket};
 use linux_embedded_hal::I2cdev;
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
-use tasks::background::BlinkInfo;
 
 use std::any::Any;
 use std::error;
@@ -14,7 +12,6 @@ use std::future::Future;
 use std::io;
 use std::rc::Rc;
 use std::thread;
-use std::time::Duration;
 
 use wb_notifier_driver::cmds::InitFailure;
 use wb_notifier_driver::{self, Request, Response};
@@ -39,7 +36,6 @@ pub struct Server {
 }
 
 type AsyncSend = Sender<(Request, Sender<Response>)>;
-type AsyncRecv = Receiver<(Request, Sender<Response>)>;
 
 struct Context<'ex, 'b> {
     ex: &'b Rc<LocalExecutor<'ex>>,

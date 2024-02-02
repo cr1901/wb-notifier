@@ -17,7 +17,7 @@ mod client {
         #[argh(positional, from_str_fn(sock_parse))]
         pub addr: SocketAddr,
         #[argh(subcommand)]
-        pub cmd: Cmd
+        pub cmd: Cmd,
     }
 
     #[derive(FromArgs, PartialEq, Debug)]
@@ -25,40 +25,40 @@ mod client {
     pub enum Cmd {
         Notify(NotifySubCommand),
         Ack(AckSubCommand),
-        ConfigBargraph(ConfigBargraphSubCommand)
+        ConfigBargraph(ConfigBargraphSubCommand),
     }
 
     #[derive(FromArgs, PartialEq, Debug)]
-    #[argh(subcommand, name="notify")]
+    #[argh(subcommand, name = "notify")]
     /// notify workbench daemon with new message
     pub struct NotifySubCommand {
         /// message number/LED to bind to
-        #[argh(option, short='l')]
+        #[argh(option, short = 'l')]
         pub num: Option<u8>,
         /// status level of message
-        #[argh(option, short='s', from_str_fn(status_parse))]
+        #[argh(option, short = 's', from_str_fn(status_parse))]
         pub status: Option<Status>,
         /// message to send to LCD
-        #[argh(option, short='m')]
-        pub msg: Option<String>
+        #[argh(option, short = 'm')]
+        pub msg: Option<String>,
     }
 
     #[derive(FromArgs, PartialEq, Debug)]
-    #[argh(subcommand, name="ack")]
+    #[argh(subcommand, name = "ack")]
     /// clear message from workbench daemon
     pub struct AckSubCommand {
-        #[argh(option, short='l')]
+        #[argh(option, short = 'l')]
         /// message number/LED to bind to clear
-        pub num: Option<u8>
+        pub num: Option<u8>,
     }
 
     #[derive(FromArgs, PartialEq, Debug)]
-    #[argh(subcommand, name="config-bg")]
+    #[argh(subcommand, name = "config-bg")]
     /// bargraph config
     pub struct ConfigBargraphSubCommand {
-        #[argh(option, short='d', from_str_fn(dim_parse))]
+        #[argh(option, short = 'd', from_str_fn(dim_parse))]
         /// message number/LED to bind to clear
-        pub level: Option<SetDimming>
+        pub level: Option<SetDimming>,
     }
 
     fn sock_parse(addr: &str) -> Result<SocketAddr, String> {
@@ -71,7 +71,11 @@ mod client {
             "lo" | "low" => Ok(SetDimming::Lo),
             _ => {
                 let mut msg = String::new();
-                let _ = write!(msg, r#"expected "hi", "high", "lo", or "low", got {}"#, level);
+                let _ = write!(
+                    msg,
+                    r#"expected "hi", "high", "lo", or "low", got {}"#,
+                    level
+                );
                 Err(msg)
             }
         }
@@ -91,7 +95,7 @@ mod client {
             } else {
                 Status::Warning
             }
-        }).map_err(|e| {
+        }).map_err(|_e| {
             let mut msg = String::new();
             let _ = write!(msg, r#"expected "red", "urgent", "yellow", "error", "on", "green", "ok", or integer, got {}"#, status);
             msg
@@ -115,31 +119,27 @@ fn main() -> Result<()> {
         Cmd::Notify(NotifySubCommand {
             num,
             status,
-            msg
+            msg: _,
         }) => {
             client.notify(
                 Notify {
                     num: num.unwrap_or(0),
-                    status: status.unwrap_or(Status::Ok)
+                    status: status.unwrap_or(Status::Ok),
                 },
                 &mut buf,
             )?;
-        },
-        Cmd::Ack(AckSubCommand {
-            num,
-        }) => {
+        }
+        Cmd::Ack(AckSubCommand { num }) => {
             client.ack(
                 Ack {
-                    num: num.unwrap_or(0)
+                    num: num.unwrap_or(0),
                 },
                 &mut buf,
             )?;
-        },
-        Cmd::ConfigBargraph(ConfigBargraphSubCommand {
-            level
-        }) => {
+        }
+        Cmd::ConfigBargraph(ConfigBargraphSubCommand { level }) => {
             client.set_dimming(level.unwrap_or(SetDimming::Hi), &mut buf)?;
-        },
+        }
     }
 
     Ok(())
