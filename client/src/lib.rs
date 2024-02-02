@@ -116,6 +116,19 @@ impl Client {
         }
     }
 
+    pub fn ack<A>(&mut self, ack: A, buf: &mut [u8]) -> Result<(), Error>
+    where
+        A: Into<Ack>,
+    {
+        let resp: AckResponse =
+            self.raw::<Ack, AckResponse, _, _, _>(CLEAR_NOTIFY_PATH, ack.into(), buf)?;
+
+        match resp.0 {
+            Ok(()) => Ok(()),
+            Err(()) => Err(Error::RequestFailed),
+        }
+    }
+
     pub fn set_dimming<PWM>(&mut self, pwm: PWM, buf: &mut [u8]) -> Result<(), Error>
     where
         PWM: Into<SetDimming>,

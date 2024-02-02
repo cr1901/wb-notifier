@@ -128,7 +128,12 @@ fn main() -> Result<()> {
         Cmd::Ack(AckSubCommand {
             num,
         }) => {
-            unimplemented!()
+            client.ack(
+                Ack {
+                    num: num.unwrap_or(0)
+                },
+                &mut buf,
+            )?;
         },
         Cmd::ConfigBargraph(ConfigBargraphSubCommand {
             level

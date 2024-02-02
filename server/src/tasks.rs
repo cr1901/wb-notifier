@@ -128,6 +128,39 @@ pub(super) mod handlers {
         }
     }
 
+    pub async fn ack<'a, 'ex>(
+        _ex: Rc<LocalExecutor<'ex>>,
+        seq_no: u32,
+        key: Key,
+        (sock, addr): (UdpSocket, SocketAddr),
+        req_send: AsyncSend,
+        blink_send: Sender<BlinkInfo>,
+        Ack { num }: Ack
+    ) {
+        let mut buf = vec![0u8; 1024];
+        let (resp_send, resp_recv) = bounded(1);
+        // For now, we give up on any send/recv/downcast/deserialize errors and
+        // rely on client to time out.
+        let _ = req_send
+            .send((
+                Request::Bargraph(cmds::Bargraph::SetLedNo { num, color: LedColor::Off }),
+                resp_send,
+            ))
+            .await;
+
+        let res = resp_recv
+            .recv()
+            .await
+            .map(|r| r.downcast::<Result<(), ()>>().unwrap());
+
+        let _ = blink_send.send(BlinkInfo::LedClear).await;
+        if let Ok(resp) = res.as_deref() {
+            if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
+                let _ = sock.send_to(used, addr).await;
+            }
+        }
+    }
+
     pub async fn echo<'a, 'ex>(
         _ex: Rc<LocalExecutor<'ex>>,
         seq_no: u32,

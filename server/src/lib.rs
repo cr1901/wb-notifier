@@ -31,6 +31,7 @@ endpoint!(
     "led/dimming"
 );
 endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/notify");
+endpoint!(AckEndpoint, Ack, AckResponse, "led/ack");
 
 pub struct Server {
     addr: SocketAddr,
@@ -176,6 +177,9 @@ impl Server {
         dispatch
             .add_handler::<NotifyEndpoint>(notify_handler)
             .map_err(|s| Error::Init(s))?;
+        dispatch
+            .add_handler::<AckEndpoint>(ack_handler)
+            .map_err(|s| Error::Init(s))?;
         dispatch.context().send = Some(sensor_send);
 
         loop {
@@ -254,6 +258,24 @@ fn notify_handler<'ex, 'b>(
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
         tasks::handlers::notify(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            ctx.send.clone().unwrap(),
+            ctx.blink_send.clone().unwrap(),
+            msg,
+        )
+    })
+}
+
+fn ack_handler<'ex, 'b>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'ex, 'b>,
+    bytes: &[u8],
+) -> Result<(), Error> {
+    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+        tasks::handlers::ack(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,

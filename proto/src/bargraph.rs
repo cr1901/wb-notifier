@@ -55,8 +55,7 @@ pub enum Status {
 
 #[derive(Serialize, Deserialize, Schema)]
 pub struct Ack {
-    pub num: u8,
-    pub status: Status,
+    pub num: u8
 }
 
 #[derive(Serialize, Deserialize, Schema)]
