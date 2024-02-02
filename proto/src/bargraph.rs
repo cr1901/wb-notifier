@@ -28,7 +28,7 @@ pub enum LedColor {
     Yellow,
 }
 
-#[derive(Serialize, Deserialize, Schema)]
+#[derive(Serialize, Deserialize, Schema, PartialEq, Debug)]
 pub enum SetDimming {
     Lo,
     Hi,
@@ -46,7 +46,7 @@ pub struct Notify {
 #[derive(Serialize, Deserialize, Schema)]
 pub struct NotifyResponse(pub Result<(), ()>);
 
-#[derive(Serialize, Deserialize, Schema)]
+#[derive(Serialize, Deserialize, Schema, PartialEq, Debug)]
 pub enum Status {
     Ok,
     Warning,

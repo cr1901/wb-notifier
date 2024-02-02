@@ -77,28 +77,32 @@ where
                 _ => {}
             },
             Request::Bargraph(cmds::Bargraph::SetBrightness { pwm }) => {
-                do_bargraph(resp, sensors, |bg| bg.set_dimming(pwm))?;
+                do_bargraph(resp, sensors, |bg| bg.set_dimming(pwm).map_err(|_| ()))?;
             }
             Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }) => {
-                do_bargraph(resp, sensors, |bg| bg.set_led_no(num, color))?;
+                do_bargraph(resp, sensors, |bg| {
+                    bg.set_led_no(num, color).map_err(|_| ())
+                })?;
             }
             Request::Bargraph(cmds::Bargraph::FastBlink) => {
                 do_bargraph(resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::TWO_HZ)
+                    bg.set_display(bargraph::Display::TWO_HZ).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::MediumBlink) => {
                 do_bargraph(resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::ONE_HZ)
+                    bg.set_display(bargraph::Display::ONE_HZ).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::SlowBlink) => {
                 do_bargraph(resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::HALF_HZ)
+                    bg.set_display(bargraph::Display::HALF_HZ).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::StopBlink) => {
-                do_bargraph(resp, sensors, |bg| bg.set_display(bargraph::Display::ON))?;
+                do_bargraph(resp, sensors, |bg| {
+                    bg.set_display(bargraph::Display::ON).map_err(|_| ())
+                })?;
             }
             _ => unimplemented!(),
         }
