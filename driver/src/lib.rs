@@ -135,7 +135,7 @@ where
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
                 }
-                
+
                 return Err(cmds::InitFailure::Driver(Driver::Bargraph));
             }
             bargraph::Error::OutOfRange => unreachable!(),
@@ -150,7 +150,7 @@ where
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
                 }
-                
+
                 return Err(cmds::InitFailure::Driver(Driver::Bargraph));
             }
             bargraph::Error::OutOfRange => unreachable!(),

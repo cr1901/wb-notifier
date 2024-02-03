@@ -77,10 +77,9 @@ impl fmt::Display for Error {
             Self::Io(_) => write!(f, "io error"),
             Self::Init(_) => write!(f, "initialization error"),
             Self::Parse(_) => write!(f, "error deserializing postcard message"),
-            Self::NoMatch { key, seq_no } => write!(
-                f,
-                "cannot dispatch sequence no {seq_no} with key {key:?}"
-            ),
+            Self::NoMatch { key, seq_no } => {
+                write!(f, "cannot dispatch sequence no {seq_no} with key {key:?}")
+            }
         }
     }
 }
@@ -100,7 +99,8 @@ impl error::Error for Error {
 }
 
 impl Server {
-    #[must_use] pub fn new(addr: SocketAddr, devices: Vec<Device>) -> Self {
+    #[must_use]
+    pub fn new(addr: SocketAddr, devices: Vec<Device>) -> Self {
         Self { addr, devices }
     }
 
@@ -212,11 +212,7 @@ where
     }
 }
 
-fn set_led_handler(
-    hdr: &WireHeader,
-    ctx: &mut Context<'_, '_>,
-    bytes: &[u8],
-) -> Result<(), Error> {
+fn set_led_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_led(
             ctx.ex.clone(),
@@ -246,11 +242,7 @@ fn set_dimming_handler(
     })
 }
 
-fn notify_handler(
-    hdr: &WireHeader,
-    ctx: &mut Context<'_, '_>,
-    bytes: &[u8],
-) -> Result<(), Error> {
+fn notify_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::notify(
             ctx.ex.clone(),
@@ -264,11 +256,7 @@ fn notify_handler(
     })
 }
 
-fn ack_handler(
-    hdr: &WireHeader,
-    ctx: &mut Context<'_, '_>,
-    bytes: &[u8],
-) -> Result<(), Error> {
+fn ack_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::ack(
             ctx.ex.clone(),
@@ -282,11 +270,7 @@ fn ack_handler(
     })
 }
 
-fn echo_handler(
-    hdr: &WireHeader,
-    ctx: &mut Context<'_, '_>,
-    bytes: &[u8],
-) -> Result<(), Error> {
+fn echo_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::echo(
             ctx.ex.clone(),
