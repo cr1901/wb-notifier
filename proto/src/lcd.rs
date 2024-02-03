@@ -8,4 +8,4 @@ pub struct Enable();
 
 // This is our Response type
 #[derive(Serialize, Deserialize, Schema)]
-pub struct EnableResponse(Result<(), ()>);
+pub struct EnableResponse(Result<(), RequestError>);

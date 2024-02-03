@@ -36,15 +36,21 @@ pub(super) mod handlers {
             ))
             .await;
 
-        let res = resp_recv
-            .recv()
-            .await
-            .map(|r| r.downcast::<Result<(), ()>>().unwrap());
+        let recv_res: Result<(), RequestError>;
+        if let Ok(raw_res) = resp_recv.recv().await {
+            recv_res = raw_res
+                .map(|r| *r.downcast::<()>().unwrap())
+                .map_err(|e| match e {
+                    cmds::Error::Client(_) => RequestError {},
+                    _ => unreachable!(),
+                });
+        } else {
+            return
+        }
 
-        if let Ok(resp) = res.as_deref() {
-            if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
-                let _ = sock.send_to(used, addr).await;
-            }
+
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &SetLedResponse(recv_res), &mut buf) {
+            let _ = sock.send_to(used, addr).await;
         }
     }
 
@@ -74,15 +80,20 @@ pub(super) mod handlers {
             ))
             .await;
 
-        let recv_res = resp_recv
-            .recv()
-            .await
-            .map(|r| r.downcast::<Result<(), ()>>().unwrap());
+        let recv_res: Result<(), RequestError>;
+        if let Ok(raw_res) = resp_recv.recv().await {
+            recv_res = raw_res
+                .map(|r| *r.downcast::<()>().unwrap())
+                .map_err(|e| match e {
+                    cmds::Error::Client(_) => RequestError {},
+                    _ => unreachable!(),
+                });
+        } else {
+            return
+        }
 
-        if let Ok(resp) = recv_res.as_deref() {
-            if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
-                let _ = sock.send_to(used, addr).await;
-            }
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &SetDimmingResponse(recv_res), &mut buf) {
+            let _ = sock.send_to(used, addr).await;
         }
     }
 
@@ -113,16 +124,21 @@ pub(super) mod handlers {
             ))
             .await;
 
-        let res = resp_recv
-            .recv()
-            .await
-            .map(|r| r.downcast::<Result<(), ()>>().unwrap());
+        let recv_res: Result<(), RequestError>;
+        if let Ok(raw_res) = resp_recv.recv().await {
+            recv_res = raw_res
+                .map(|r| *r.downcast::<()>().unwrap())
+                .map_err(|e| match e {
+                    cmds::Error::Client(_) => RequestError {},
+                    _ => unreachable!(),
+                });
+        } else {
+            return
+        }
 
         let _ = blink_send.send(BlinkInfo::LedSet).await;
-        if let Ok(resp) = res.as_deref() {
-            if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
-                let _ = sock.send_to(used, addr).await;
-            }
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &NotifyResponse(recv_res), &mut buf) {
+            let _ = sock.send_to(used, addr).await;
         }
     }
 
@@ -149,16 +165,21 @@ pub(super) mod handlers {
             ))
             .await;
 
-        let res = resp_recv
-            .recv()
-            .await
-            .map(|r| r.downcast::<Result<(), ()>>().unwrap());
+        let recv_res: Result<(), RequestError>;
+        if let Ok(raw_res) = resp_recv.recv().await {
+            recv_res = raw_res
+                .map(|r| *r.downcast::<()>().unwrap())
+                .map_err(|e| match e {
+                    cmds::Error::Client(_) => RequestError {},
+                    _ => unreachable!(),
+                });
+        } else {
+            return
+        }
 
         let _ = blink_send.send(BlinkInfo::LedClear).await;
-        if let Ok(resp) = res.as_deref() {
-            if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
-                let _ = sock.send_to(used, addr).await;
-            }
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &AckResponse(recv_res), &mut buf) {
+            let _ = sock.send_to(used, addr).await;
         }
     }
 

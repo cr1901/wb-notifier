@@ -5,6 +5,8 @@ use std::{error, fmt};
 use super::bargraph::*;
 use wb_notifier_proto::{Device, Driver};
 
+pub use wb_notifier_proto::RequestError;
+
 #[derive(Debug)]
 pub enum Bargraph {
     Init,
@@ -36,7 +38,7 @@ impl fmt::Display for InitFailure {
                 write!(f, "driver {drv} could not communicate with device")
             }
             InitFailure::DeviceNotFound(Device { name: _name, addr: _addr, driver: _driver }) => write!(f, "unused placeholder"),
-            InitFailure::RespChannelClosed => write!(f, "sensor thread failed to initialize"),
+            InitFailure::RespChannelClosed => write!(f, "response channel to executor thread closed"),
         }
     }
 }
@@ -44,5 +46,32 @@ impl fmt::Display for InitFailure {
 impl error::Error for InitFailure {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    /// Intended to only be consumed by server main loop.
+    Init(InitFailure),
+    /// Can be returned to client.
+    Client(RequestError)
+}
+
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Init(_) => write!(f, "sensor thread init failure"),
+            Error::Client(_) => write!(f, "sensor thread couldn't handle client request"),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Error::Init(i) => Some(i),
+            Error::Client(c) => Some(c)
+        }
     }
 }

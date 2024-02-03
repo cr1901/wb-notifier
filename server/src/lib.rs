@@ -140,11 +140,15 @@ impl Server {
         send.send_blocking((Request::Init(dev.clone()), resp_send))
             .map_err(|s| Error::Init(InitError::SendChannel(s)))?;
 
-        let init_res = resp_recv
+        let raw_res: Result<Box<dyn Any + Send>, wb_notifier_driver::cmds::Error> = resp_recv
             .recv_blocking()
             .map_err(|r| Error::Init(InitError::RecvChannel(r)))?;
 
-        Ok(init_res)
+        match raw_res {
+            Ok(r) => Ok(r),
+            Err(wb_notifier_driver::cmds::Error::Init(e)) => Err(Error::Init(InitError::DriverThread(e))),
+            _ => unreachable!()
+        }
     }
 
     pub async fn main_loop(self, ex: Rc<LocalExecutor<'_>>) -> Result<(), Error> {
@@ -155,17 +159,12 @@ impl Server {
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| Error::Io(e.into()))?;
         let (sensor_send, sensor_recv) = bounded(16);
 
-        thread::spawn(move || wb_notifier_driver::main_loop(i2c, &sensor_recv));
+        thread::spawn(move || wb_notifier_driver::main_loop::<_,_,>(i2c, &sensor_recv));
 
         self.devices
             .iter()
             .map(|d| {
-                let init_res = Self::send_init_msg(&sensor_send, d)?.downcast::<Result<(), InitFailure>>().unwrap();
-
-                if let Err(e) = *init_res
-                {
-                    return Err(Error::Init(InitError::DriverThread(e)));
-                }
+                Self::send_init_msg(&sensor_send, d)?;
 
                 match d.driver {
                     Driver::Bargraph => {
@@ -185,7 +184,7 @@ impl Server {
 
                 Ok(())
             })
-            .collect::<Result<Vec<()>, _>>()?;
+            .collect::<Result<Vec<()>, Error>>()?;
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)

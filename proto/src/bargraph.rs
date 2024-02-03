@@ -13,7 +13,7 @@ pub struct SetLed {
 
 // This is our Response type
 #[derive(Serialize, Deserialize, Schema)]
-pub struct SetLedResponse(pub Result<(), ()>);
+pub struct SetLedResponse(pub Result<(), RequestError>);
 
 #[derive(Serialize, Deserialize, Schema, Clone, Copy, Debug, PartialEq)]
 /// LED colors.
@@ -35,7 +35,7 @@ pub enum SetDimming {
 }
 
 #[derive(Serialize, Deserialize, Schema)]
-pub struct SetDimmingResponse(pub Result<(), ()>);
+pub struct SetDimmingResponse(pub Result<(), RequestError>);
 
 #[derive(Serialize, Deserialize, Schema)]
 pub struct Notify {
@@ -44,7 +44,7 @@ pub struct Notify {
 }
 
 #[derive(Serialize, Deserialize, Schema)]
-pub struct NotifyResponse(pub Result<(), ()>);
+pub struct NotifyResponse(pub Result<(), RequestError>);
 
 #[derive(Serialize, Deserialize, Schema, PartialEq, Debug)]
 pub enum Status {
@@ -59,4 +59,4 @@ pub struct Ack {
 }
 
 #[derive(Serialize, Deserialize, Schema)]
-pub struct AckResponse(pub Result<(), ()>);
+pub struct AckResponse(pub Result<(), RequestError>);

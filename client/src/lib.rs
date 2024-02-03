@@ -24,7 +24,7 @@ pub enum Error {
     NoResponse((u32, Key)),
     // FIXME: Do something like ErrorKind for I/O, getting info from Error
     // socket?
-    RequestFailed,
+    RequestFailed(RequestError),
 }
 
 impl fmt::Display for Error {
@@ -35,7 +35,7 @@ impl fmt::Display for Error {
             Error::BadResponse(_) => write!(f, "unexpected response seq no and key"),
             Error::NoResponse(_) => write!(f, "no response from server before timeout"),
             Error::Parse(_) => write!(f, "could not ser/deserialize RPC call"),
-            Error::RequestFailed => write!(f, "server could not honor request"),
+            Error::RequestFailed(_) => write!(f, "server saw request but failed to process it"),
         }
     }
 }
@@ -45,10 +45,10 @@ impl error::Error for Error {
         match self {
             Error::NotConnected
             | Error::BadResponse(_)
-            | Error::NoResponse(_)
-            | Error::RequestFailed => None,
+            | Error::NoResponse(_) => None,
             Error::Io(e) => Some(e),
             Error::Parse(p) => Some(p),
+            Error::RequestFailed(r) => Some(r),
         }
     }
 }
@@ -106,7 +106,7 @@ impl Client {
 
         match resp.0 {
             Ok(()) => Ok(()),
-            Err(()) => Err(Error::RequestFailed),
+            Err(r) => Err(Error::RequestFailed(r)),
         }
     }
 
@@ -119,7 +119,7 @@ impl Client {
 
         match resp.0 {
             Ok(()) => Ok(()),
-            Err(()) => Err(Error::RequestFailed),
+            Err(r) => Err(Error::RequestFailed(r)),
         }
     }
 
@@ -132,7 +132,7 @@ impl Client {
 
         match resp.0 {
             Ok(()) => Ok(()),
-            Err(()) => Err(Error::RequestFailed),
+            Err(r) => Err(Error::RequestFailed(r)),
         }
     }
 
@@ -145,7 +145,7 @@ impl Client {
 
         match resp.0 {
             Ok(()) => Ok(()),
-            Err(()) => Err(Error::RequestFailed),
+            Err(r) => Err(Error::RequestFailed(r)),
         }
     }
 
@@ -174,6 +174,7 @@ impl Client {
                 io::ErrorKind::WouldBlock => Error::NoResponse((0, key)),
                 _ => Error::Io(e),
             })?;
+
         let (hdr, rest) = extract_header_from_bytes(buf)?;
         if hdr.seq_no == 0 && hdr.key == key {
             let payload = from_bytes::<PRS>(rest)?;

@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::{any::Any, error};
 
 use async_channel::{Receiver, Sender};
 use embedded_hal::blocking::i2c::{Write, WriteRead};
@@ -9,8 +9,10 @@ pub mod bargraph;
 pub mod cmds;
 pub mod lcd;
 
+use cmds::{Error, InitFailure, RequestError};
+
 pub type AsyncRecv = Receiver<(Request, Sender<Response>)>;
-pub type Response = Box<dyn Any + Send>;
+pub type Response = Result<Box<dyn Any + Send>, Error>;
 
 struct Sensors<'a, I2C> {
     bargraph: Option<bargraph::Bargraph<I2cProxy<'a, NullMutex<I2C>>>>,
@@ -28,36 +30,36 @@ pub enum Request {
     LoopDeinit,
 }
 
-enum Error {
+enum InternalError {
     /// Uninitialized Device, etc. The loop should keep going.
     Transient,
     /// Lost channel connection, etc. The loop should end.
     Persistent,
 }
 
-pub fn main_loop<I2C, E>(bus: I2C, cmd: &AsyncRecv)
+pub fn main_loop<I2C, I2CE>(bus: I2C, cmd: &AsyncRecv)
 where
-    I2C: Write<Error = E> + WriteRead<Error = E>,
-    E: 'static + Send,
+    I2C: Write<Error = I2CE> + WriteRead<Error = I2CE>,
+    I2CE: 'static + Send + error::Error,
 {
     let manager = BusManagerSimple::new(bus);
     let mut sensors = Sensors::new();
 
     loop {
-        if let Err(Error::Persistent) = main_loop_single_iter(cmd, &manager, &mut sensors) {
+        if let Err(InternalError::Persistent) = main_loop_single_iter(cmd, &manager, &mut sensors) {
             break;
         }
     }
 }
 
-fn main_loop_single_iter<'a, 'b, I2C, E>(
+fn main_loop_single_iter<'a, 'b, I2C, I2CE>(
     cmd: &AsyncRecv,
     manager: &'b BusManagerSimple<I2C>,
     sensors: &mut Sensors<'a, I2C>,
-) -> Result<(), Error>
+) -> Result<(), InternalError>
 where
-    I2C: Write<Error = E> + WriteRead<Error = E>,
-    E: 'static + Send,
+    I2C: Write<Error = I2CE> + WriteRead<Error = I2CE>,
+    I2CE: 'static + Send + error::Error,
     'b: 'a,
 {
     if let Ok((req, resp)) = cmd.recv_blocking() {
@@ -69,40 +71,40 @@ where
                     addr,
                     driver: Driver::Bargraph,
                 } => {
-                    if let Err(cmds::InitFailure::RespChannelClosed) =
+                    if let Err(InitFailure::RespChannelClosed) =
                         bargraph_init(manager, sensors, &resp, addr)
                     {
-                        return Err(Error::Persistent);
+                        return Err(InternalError::Persistent);
                     }
                 }
                 _ => {}
             },
             Request::Bargraph(cmds::Bargraph::SetBrightness { pwm }) => {
-                do_bargraph(&resp, sensors, |bg| bg.set_dimming(pwm).map_err(|_| ()))?;
+                do_bargraph(&resp, sensors, |bg| bg.set_dimming(pwm))?;
             }
             Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }) => {
                 do_bargraph(&resp, sensors, |bg| {
-                    bg.set_led_no(num, color).map_err(|_| ())
+                    bg.set_led_no(num, color)
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::FastBlink) => {
                 do_bargraph(&resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::TWO_HZ).map_err(|_| ())
+                    bg.set_display(bargraph::Display::TWO_HZ)
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::MediumBlink) => {
                 do_bargraph(&resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::ONE_HZ).map_err(|_| ())
+                    bg.set_display(bargraph::Display::ONE_HZ)
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::SlowBlink) => {
                 do_bargraph(&resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::HALF_HZ).map_err(|_| ())
+                    bg.set_display(bargraph::Display::HALF_HZ)
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::StopBlink) => {
                 do_bargraph(&resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::ON).map_err(|_| ())
+                    bg.set_display(bargraph::Display::ON)
                 })?;
             }
             _ => unimplemented!(),
@@ -110,19 +112,19 @@ where
 
         Ok(())
     } else {
-        Err(Error::Persistent)
+        Err(InternalError::Persistent)
     }
 }
 
-fn bargraph_init<'a, I2C, E>(
+fn bargraph_init<'a, I2C, I2CE>(
     manager: &'a BusManagerSimple<I2C>,
     sensors: &mut Sensors<'a, I2C>,
     resp: &Sender<Response>,
     addr: u8,
-) -> Result<(), cmds::InitFailure>
+) -> Result<(), InitFailure>
 where
-    I2C: Write<Error = E> + WriteRead<Error = E>,
-    E: 'static + Send,
+    I2C: Write<Error = I2CE> + WriteRead<Error = I2CE>,
+    I2CE: 'static + Send + error::Error,
 {
     let i2c = manager.acquire_i2c();
 
@@ -130,13 +132,16 @@ where
     if let Err(e) = bg.initialize() {
         match e {
             bargraph::Error::Hal(_) => {
-                let msg: Box<Result<(), _>> =
-                    Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
-                if resp.send_blocking(msg).is_err() {
-                    return Err(cmds::InitFailure::RespChannelClosed);
+                let _err_channel_err: Box<dyn error::Error + Send> =
+                    Box::new(InitFailure::Driver(Driver::Bargraph));
+
+                let client_err = Err(cmds::Error::Init(InitFailure::Driver(Driver::Bargraph)));
+
+                if resp.send_blocking(client_err).is_err() {
+                    return Err(InitFailure::RespChannelClosed);
                 }
 
-                return Err(cmds::InitFailure::Driver(Driver::Bargraph));
+                return Err(InitFailure::Driver(Driver::Bargraph));
             }
             bargraph::Error::OutOfRange => unreachable!(),
         }
@@ -145,45 +150,57 @@ where
     if let Err(e) = bg.set_dimming(bargraph::Dimming::BRIGHTNESS_3_16) {
         match e {
             bargraph::Error::Hal(_) => {
-                let msg: Box<Result<(), _>> =
-                    Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
-                if resp.send_blocking(msg).is_err() {
-                    return Err(cmds::InitFailure::RespChannelClosed);
+                let _err_channel_err: Box<dyn error::Error + Send> =
+                    Box::new(InitFailure::Driver(Driver::Bargraph));
+
+                let client_err = Err(cmds::Error::Init(InitFailure::Driver(Driver::Bargraph)));
+
+                if resp.send_blocking(client_err).is_err() {
+                    return Err(InitFailure::RespChannelClosed);
                 }
 
-                return Err(cmds::InitFailure::Driver(Driver::Bargraph));
+                return Err(InitFailure::Driver(Driver::Bargraph));
             }
             bargraph::Error::OutOfRange => unreachable!(),
         }
     }
 
     sensors.bargraph = Some(bg);
-    let msg: Box<Result<(), cmds::InitFailure>> = Box::new(Ok(()));
-    if resp.send_blocking(msg).is_err() {
-        Err(cmds::InitFailure::RespChannelClosed)
+    let ok_msg: Result<Box<dyn Any + Send>, _> = Ok(Box::new(()));
+    if resp.send_blocking(ok_msg).is_err() {
+        Err(InitFailure::RespChannelClosed)
     } else {
         Ok(())
     }
 }
 
 fn do_bargraph<'a, 'bg, I2C, I2CE, T, E, F>(
-    resp: &Sender<Box<dyn Any + Send>>,
+    resp: &Sender<Result<Box<dyn Any + Send>, Error>>,
     sensors: &'bg mut Sensors<'a, I2C>,
     mut req: F,
-) -> Result<(), Error>
+) -> Result<(), InternalError>
 where
     I2C: Write<Error = I2CE> + WriteRead<Error = I2CE>,
     I2CE: 'static,
     F: FnMut(&'bg mut bargraph::Bargraph<I2cProxy<'a, NullMutex<I2C>>>) -> Result<T, E>,
     T: Send + 'static,
-    E: Send + 'static,
+    E: error::Error + Send + 'static,
 {
-    let bg = sensors.bargraph.as_mut().ok_or(Error::Transient)?;
+    let bg = sensors.bargraph.as_mut().ok_or(InternalError::Transient)?;
 
-    let msg = Box::new(req(bg));
+    let client_msg: Result<Box<dyn Any + Send>, _> = match req(bg) {
+        Ok(t) => {
+            Ok(Box::new(t))
+        },
+        Err(e) => {
+            let _err_channel_err: Box<dyn error::Error + Send> =
+                    Box::new(e);
+            Err(Error::Client(RequestError {}))
+        }
+    };
 
-    if resp.send_blocking(msg).is_err() {
-        return Err(Error::Persistent);
+    if resp.send_blocking(client_msg).is_err() {
+        return Err(InternalError::Persistent);
     }
 
     Ok(())
