@@ -12,3 +12,6 @@ embedded-hal = "0.2.7"
 ht16k33 = { git = "https://github.com/cr1901/ht16k33", branch="common-addrs", version = "0.5.0", features = [] }
 shared-bus = "0.3.1"
 wb-notifier-proto = { path = "../proto" }
+
+[lints]
+workspace = true

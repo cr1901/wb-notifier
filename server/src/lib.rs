@@ -163,25 +163,25 @@ impl Server {
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)
-            .map_err(|s| Error::Init(s))?;
+            .map_err(Error::Init)?;
         dispatch
             .add_handler::<SetLedEndpoint>(set_led_handler)
-            .map_err(|s| Error::Init(s))?;
+            .map_err(Error::Init)?;
         dispatch
             .add_handler::<SetDimmingEndpoint>(set_dimming_handler)
-            .map_err(|s| Error::Init(s))?;
+            .map_err(Error::Init)?;
         dispatch
             .add_handler::<NotifyEndpoint>(notify_handler)
-            .map_err(|s| Error::Init(s))?;
+            .map_err(Error::Init)?;
         dispatch
             .add_handler::<AckEndpoint>(ack_handler)
-            .map_err(|s| Error::Init(s))?;
+            .map_err(Error::Init)?;
         dispatch.context().send = Some(sensor_send);
 
         loop {
             let (n, addr) = socket.recv_from(&mut buf).await?;
             dispatch.context().addr = Some(addr);
-            match dispatch.dispatch(&mut buf[..n]) {
+            match dispatch.dispatch(&buf[..n]) {
                 Ok(_) => {}
                 Err(e) => {
                     println!("Need to handle error: {:?}", e)
@@ -213,9 +213,9 @@ where
     }
 }
 
-fn set_led_handler<'ex, 'b>(
+fn set_led_handler(
     hdr: &WireHeader,
-    ctx: &mut Context<'ex, 'b>,
+    ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
@@ -223,16 +223,16 @@ fn set_led_handler<'ex, 'b>(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
-            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            (ctx.sock.clone(), ctx.addr.unwrap()),
             ctx.send.clone().unwrap(),
             msg,
         )
     })
 }
 
-fn set_dimming_handler<'ex, 'b>(
+fn set_dimming_handler(
     hdr: &WireHeader,
-    ctx: &mut Context<'ex, 'b>,
+    ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
@@ -240,16 +240,16 @@ fn set_dimming_handler<'ex, 'b>(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
-            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            (ctx.sock.clone(), ctx.addr.unwrap()),
             ctx.send.clone().unwrap(),
             msg,
         )
     })
 }
 
-fn notify_handler<'ex, 'b>(
+fn notify_handler(
     hdr: &WireHeader,
-    ctx: &mut Context<'ex, 'b>,
+    ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
@@ -257,7 +257,7 @@ fn notify_handler<'ex, 'b>(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
-            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            (ctx.sock.clone(), ctx.addr.unwrap()),
             ctx.send.clone().unwrap(),
             ctx.blink_send.clone().unwrap(),
             msg,
@@ -265,9 +265,9 @@ fn notify_handler<'ex, 'b>(
     })
 }
 
-fn ack_handler<'ex, 'b>(
+fn ack_handler(
     hdr: &WireHeader,
-    ctx: &mut Context<'ex, 'b>,
+    ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
@@ -275,7 +275,7 @@ fn ack_handler<'ex, 'b>(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
-            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            (ctx.sock.clone(), ctx.addr.unwrap()),
             ctx.send.clone().unwrap(),
             ctx.blink_send.clone().unwrap(),
             msg,
@@ -283,9 +283,9 @@ fn ack_handler<'ex, 'b>(
     })
 }
 
-fn echo_handler<'ex, 'b>(
+fn echo_handler(
     hdr: &WireHeader,
-    ctx: &mut Context<'ex, 'b>,
+    ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
     deserialize_detach(ctx.ex.clone(), bytes, |msg| {
@@ -293,7 +293,7 @@ fn echo_handler<'ex, 'b>(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
-            (ctx.sock.clone(), ctx.addr.unwrap().clone()),
+            (ctx.sock.clone(), ctx.addr.unwrap()),
             msg,
         )
     })

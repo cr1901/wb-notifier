@@ -30,3 +30,6 @@ members = [ "client", "driver", "proto", "server" ]
 
 [profile.release]
 opt-level = "z"
+
+[workspace.lints]
+clippy = { map_err_ignore = "warn" }

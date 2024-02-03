@@ -17,3 +17,6 @@ postcard-rpc = { version = "0.3.1", default-features = false }
 serde = { version = "1.0.195", default-features = false, features = [ "std" ] }
 wb-notifier-driver = { path = "../driver" }
 wb-notifier-proto = { path = "../proto" }
+
+[lints]
+workspace = true

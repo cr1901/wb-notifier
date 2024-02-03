@@ -62,6 +62,7 @@ where
 {
     if let Ok((req, resp)) = cmd.recv_blocking() {
         match req {
+            #[allow(clippy::single_match)]
             Request::Init(d) => match d {
                 Device {
                     name: _,
@@ -69,7 +70,7 @@ where
                     driver: Driver::Bargraph,
                 } => {
                     if let Err(cmds::InitFailure::RespChannelClosed) =
-                        bargraph_init(&manager, sensors, &resp, addr)
+                        bargraph_init(manager, sensors, &resp, addr)
                     {
                         return Err(Error::Persistent);
                     }
@@ -159,9 +160,9 @@ where
     sensors.bargraph = Some(bg);
     let msg: Box<Result<(), cmds::InitFailure>> = Box::new(Ok(()));
     if resp.send_blocking(msg).is_err() {
-        return Err(cmds::InitFailure::RespChannelClosed);
+        Err(cmds::InitFailure::RespChannelClosed)
     } else {
-        return Ok(());
+        Ok(())
     }
 }
 

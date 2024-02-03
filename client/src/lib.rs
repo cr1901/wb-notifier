@@ -65,6 +65,12 @@ impl From<postcard::Error> for Error {
     }
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Client {
     pub fn new() -> Self {
         Self { sock: None }
@@ -157,7 +163,7 @@ impl Client {
         let key = Key::for_path::<PRQ>(endpoint.as_ref());
 
         let req = to_slice_keyed(0, key, &payload.into(), buf)?;
-        self.sock.as_mut().ok_or(Error::NotConnected)?.send(&req)?;
+        self.sock.as_mut().ok_or(Error::NotConnected)?.send(req)?;
 
         self.sock
             .as_mut()
@@ -169,7 +175,7 @@ impl Client {
             })?;
         let (hdr, rest) = extract_header_from_bytes(buf)?;
         if hdr.seq_no == 0 && hdr.key == key {
-            let payload = from_bytes::<PRS>(&rest)?;
+            let payload = from_bytes::<PRS>(rest)?;
             Ok(payload.into())
         } else {
             Err(Error::BadResponse((hdr.seq_no, hdr.key)))

@@ -15,8 +15,8 @@ pub(super) mod handlers {
     use super::*;
     use background::BlinkInfo;
 
-    pub async fn set_led<'a, 'ex>(
-        _ex: Rc<LocalExecutor<'ex>>,
+    pub async fn set_led<'a>(
+        _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
@@ -48,8 +48,8 @@ pub(super) mod handlers {
         }
     }
 
-    pub async fn set_dimming<'a, 'ex>(
-        _ex: Rc<LocalExecutor<'ex>>,
+    pub async fn set_dimming<'a>(
+        _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
@@ -86,8 +86,8 @@ pub(super) mod handlers {
         }
     }
 
-    pub async fn notify<'a, 'ex>(
-        _ex: Rc<LocalExecutor<'ex>>,
+    pub async fn notify<'a>(
+        _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
@@ -126,8 +126,8 @@ pub(super) mod handlers {
         }
     }
 
-    pub async fn ack<'a, 'ex>(
-        _ex: Rc<LocalExecutor<'ex>>,
+    pub async fn ack<'a>(
+        _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
@@ -162,8 +162,8 @@ pub(super) mod handlers {
         }
     }
 
-    pub async fn echo<'a, 'ex>(
-        _ex: Rc<LocalExecutor<'ex>>,
+    pub async fn echo<'a>(
+        _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
@@ -225,8 +225,8 @@ pub(super) mod background {
         LedClear,
     }
 
-    pub async fn blink<'a, 'ex>(
-        ex: Rc<LocalExecutor<'ex>>,
+    pub async fn blink<'a>(
+        ex: Rc<LocalExecutor<'_>>,
         req_send: AsyncSend,
         // For now, dispatch to blink task from server without having a channel
         // to send a response.
@@ -315,11 +315,8 @@ pub(super) mod background {
                     curr_task.cancel().await;
                     // Drain the channel to ensure it's empty for the next time
                     // we run the task.
-                    match wait_done_recv.try_recv() {
-                        Err(TryRecvError::Closed) => {
-                            break;
-                        }
-                        _ => {}
+                    if let Err(TryRecvError::Closed) = wait_done_recv.try_recv() {
+                        break;
                     }
 
                     match led {
