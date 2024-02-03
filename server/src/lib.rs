@@ -1,3 +1,4 @@
+use async_channel::{RecvError, SendError};
 use async_channel::{bounded, Sender};
 use async_executor::LocalExecutor;
 use async_net::{SocketAddr, UdpSocket};
@@ -60,7 +61,7 @@ impl<'ex, 'b> Context<'ex, 'b> {
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    Init(&'static str),
+    Init(InitError),
     Parse(postcard::Error),
     NoMatch { key: Key, seq_no: u32 },
 }
@@ -88,12 +89,42 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Self::Io(v) => Some(v),
-            Self::Init(s) => {
-                let box_err = Box::<dyn error::Error + 'static>::from(*s);
-                Some(Box::<dyn error::Error + 'static>::leak(box_err))
-            }
+            Self::Init(i) => Some(i),
             Self::Parse(p) => Some(p),
             Self::NoMatch { key: _, seq_no: _ } => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum InitError {
+    SendChannel(SendError<(Request, Sender<Response>)>),
+    RecvChannel(RecvError),
+    DriverThread(InitFailure),
+    Dispatch(&'static str)
+}
+
+impl fmt::Display for InitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InitError::SendChannel(_) => write!(f, "sensor thread closed send channel"),
+            InitError::RecvChannel(_) => write!(f, "did not receive response from sensor thread"),
+            InitError::DriverThread(_) => write!(f, "sensor thread failed to initialize"),
+            InitError::Dispatch(_) => write!(f, "dispatch table failed to initialize")
+        }
+    }
+}
+
+impl error::Error for InitError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            InitError::SendChannel(s) => Some(s),
+            InitError::RecvChannel(r) => Some(r),
+            InitError::DriverThread(d) => Some(d),
+            InitError::Dispatch(d) => {
+                let box_err = Box::<dyn error::Error + 'static>::from(*d);
+                Some(Box::<dyn error::Error + 'static>::leak(box_err))
+            }
         }
     }
 }
@@ -107,11 +138,11 @@ impl Server {
     fn send_init_msg(send: &AsyncSend, dev: &Device) -> Result<Box<dyn Any + Send>, Error> {
         let (resp_send, resp_recv) = bounded(1);
         send.send_blocking((Request::Init(dev.clone()), resp_send))
-            .map_err(|_| Error::Init("sensor thread closed send channel"))?;
+            .map_err(|s| Error::Init(InitError::SendChannel(s)))?;
 
         let init_res = resp_recv
             .recv_blocking()
-            .map_err(|_| Error::Init("did not receive response from sensor thread"))?;
+            .map_err(|r| Error::Init(InitError::RecvChannel(r)))?;
 
         Ok(init_res)
     }
@@ -129,15 +160,11 @@ impl Server {
         self.devices
             .iter()
             .map(|d| {
-                let init_res = Self::send_init_msg(&sensor_send, d)?;
+                let init_res = Self::send_init_msg(&sensor_send, d)?.downcast::<Result<(), InitFailure>>().unwrap();
 
-                if let Err(e) = init_res
-                    .downcast::<Result<(), InitFailure>>()
-                    .as_deref()
-                    .unwrap()
+                if let Err(e) = *init_res
                 {
-                    println!("{e:?}");
-                    return Err(Error::Init("sensor thread failed to initialize"));
+                    return Err(Error::Init(InitError::DriverThread(e)));
                 }
 
                 match d.driver {
@@ -162,19 +189,19 @@ impl Server {
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)
-            .map_err(Error::Init)?;
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
         dispatch
             .add_handler::<SetLedEndpoint>(set_led_handler)
-            .map_err(Error::Init)?;
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
         dispatch
             .add_handler::<SetDimmingEndpoint>(set_dimming_handler)
-            .map_err(Error::Init)?;
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
         dispatch
             .add_handler::<NotifyEndpoint>(notify_handler)
-            .map_err(Error::Init)?;
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
         dispatch
             .add_handler::<AckEndpoint>(ack_handler)
-            .map_err(Error::Init)?;
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
         dispatch.context().send = Some(sensor_send);
 
         loop {
