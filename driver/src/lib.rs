@@ -35,7 +35,7 @@ enum Error {
     Persistent,
 }
 
-pub fn main_loop<I2C, E>(bus: I2C, cmd: AsyncRecv)
+pub fn main_loop<I2C, E>(bus: I2C, cmd: &AsyncRecv)
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
     E: 'static + Send,
@@ -44,7 +44,7 @@ where
     let mut sensors = Sensors::new();
 
     loop {
-        if let Err(Error::Persistent) = main_loop_single_iter(&cmd, &manager, &mut sensors) {
+        if let Err(Error::Persistent) = main_loop_single_iter(cmd, &manager, &mut sensors) {
             break;
         }
     }
@@ -78,30 +78,30 @@ where
                 _ => {}
             },
             Request::Bargraph(cmds::Bargraph::SetBrightness { pwm }) => {
-                do_bargraph(resp, sensors, |bg| bg.set_dimming(pwm).map_err(|_| ()))?;
+                do_bargraph(&resp, sensors, |bg| bg.set_dimming(pwm).map_err(|_| ()))?;
             }
             Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }) => {
-                do_bargraph(resp, sensors, |bg| {
+                do_bargraph(&resp, sensors, |bg| {
                     bg.set_led_no(num, color).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::FastBlink) => {
-                do_bargraph(resp, sensors, |bg| {
+                do_bargraph(&resp, sensors, |bg| {
                     bg.set_display(bargraph::Display::TWO_HZ).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::MediumBlink) => {
-                do_bargraph(resp, sensors, |bg| {
+                do_bargraph(&resp, sensors, |bg| {
                     bg.set_display(bargraph::Display::ONE_HZ).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::SlowBlink) => {
-                do_bargraph(resp, sensors, |bg| {
+                do_bargraph(&resp, sensors, |bg| {
                     bg.set_display(bargraph::Display::HALF_HZ).map_err(|_| ())
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::StopBlink) => {
-                do_bargraph(resp, sensors, |bg| {
+                do_bargraph(&resp, sensors, |bg| {
                     bg.set_display(bargraph::Display::ON).map_err(|_| ())
                 })?;
             }
@@ -134,9 +134,9 @@ where
                     Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
-                } else {
-                    return Err(cmds::InitFailure::Driver(Driver::Bargraph));
                 }
+                
+                return Err(cmds::InitFailure::Driver(Driver::Bargraph));
             }
             bargraph::Error::OutOfRange => unreachable!(),
         }
@@ -149,9 +149,9 @@ where
                     Box::new(Err(cmds::InitFailure::Driver(Driver::Bargraph)));
                 if resp.send_blocking(msg).is_err() {
                     return Err(cmds::InitFailure::RespChannelClosed);
-                } else {
-                    return Err(cmds::InitFailure::Driver(Driver::Bargraph));
                 }
+                
+                return Err(cmds::InitFailure::Driver(Driver::Bargraph));
             }
             bargraph::Error::OutOfRange => unreachable!(),
         }
@@ -167,7 +167,7 @@ where
 }
 
 fn do_bargraph<'a, 'bg, I2C, I2CE, T, E, F>(
-    resp: Sender<Box<dyn Any + Send>>,
+    resp: &Sender<Box<dyn Any + Send>>,
     sensors: &'bg mut Sensors<'a, I2C>,
     mut req: F,
 ) -> Result<(), Error>

@@ -1,4 +1,4 @@
-/// Inspired by: https://github.com/jasonpeacock/led-bargraph, tweaked for
+/// Inspired by: [`led-bargraph`](https://github.com/jasonpeacock/led-bargraph), tweaked for
 /// my purposes.
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 use std::error;

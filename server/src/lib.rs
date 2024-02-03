@@ -79,8 +79,7 @@ impl fmt::Display for Error {
             Self::Parse(_) => write!(f, "error deserializing postcard message"),
             Self::NoMatch { key, seq_no } => write!(
                 f,
-                "cannot dispatch sequence no {} with key {:?}",
-                seq_no, key
+                "cannot dispatch sequence no {seq_no} with key {key:?}"
             ),
         }
     }
@@ -101,11 +100,11 @@ impl error::Error for Error {
 }
 
 impl Server {
-    pub fn new(addr: SocketAddr, devices: Vec<Device>) -> Self {
+    #[must_use] pub fn new(addr: SocketAddr, devices: Vec<Device>) -> Self {
         Self { addr, devices }
     }
 
-    fn send_init_msg(&self, send: &AsyncSend, dev: &Device) -> Result<Box<dyn Any + Send>, Error> {
+    fn send_init_msg(send: &AsyncSend, dev: &Device) -> Result<Box<dyn Any + Send>, Error> {
         let (resp_send, resp_recv) = bounded(1);
         send.send_blocking((Request::Init(dev.clone()), resp_send))
             .map_err(|_| Error::Init("sensor thread closed send channel"))?;
@@ -125,19 +124,19 @@ impl Server {
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| Error::Io(e.into()))?;
         let (sensor_send, sensor_recv) = bounded(16);
 
-        thread::spawn(move || wb_notifier_driver::main_loop(i2c, sensor_recv));
+        thread::spawn(move || wb_notifier_driver::main_loop(i2c, &sensor_recv));
 
         self.devices
             .iter()
             .map(|d| {
-                let init_res = self.send_init_msg(&sensor_send, d)?;
+                let init_res = Self::send_init_msg(&sensor_send, d)?;
 
                 if let Err(e) = init_res
                     .downcast::<Result<(), InitFailure>>()
                     .as_deref()
                     .unwrap()
                 {
-                    println!("{:?}", e);
+                    println!("{e:?}");
                     return Err(Error::Init("sensor thread failed to initialize"));
                 }
 
@@ -150,9 +149,9 @@ impl Server {
                             blink_recv,
                         ))
                         .detach();
-                        dispatch.context().blink_send = Some(blink_send)
+                        dispatch.context().blink_send = Some(blink_send);
                     }
-                    _ => {
+                    Driver::Hd44780 => {
                         unimplemented!()
                     }
                 }
@@ -182,9 +181,9 @@ impl Server {
             let (n, addr) = socket.recv_from(&mut buf).await?;
             dispatch.context().addr = Some(addr);
             match dispatch.dispatch(&buf[..n]) {
-                Ok(_) => {}
+                Ok(()) => {}
                 Err(e) => {
-                    println!("Need to handle error: {:?}", e)
+                    println!("Need to handle error: {e:?}");
                 }
             }
         }
@@ -195,7 +194,7 @@ impl Server {
 }
 
 fn deserialize_detach<'ex, 'de, T, F, H>(
-    ex: Rc<LocalExecutor<'ex>>,
+    ex: &Rc<LocalExecutor<'ex>>,
     bytes: &'de [u8],
     task: T,
 ) -> Result<(), Error>
@@ -218,7 +217,7 @@ fn set_led_handler(
     ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+    deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_led(
             ctx.ex.clone(),
             hdr.seq_no,
@@ -235,7 +234,7 @@ fn set_dimming_handler(
     ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+    deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_dimming(
             ctx.ex.clone(),
             hdr.seq_no,
@@ -252,7 +251,7 @@ fn notify_handler(
     ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+    deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::notify(
             ctx.ex.clone(),
             hdr.seq_no,
@@ -270,7 +269,7 @@ fn ack_handler(
     ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+    deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::ack(
             ctx.ex.clone(),
             hdr.seq_no,
@@ -288,7 +287,7 @@ fn echo_handler(
     ctx: &mut Context<'_, '_>,
     bytes: &[u8],
 ) -> Result<(), Error> {
-    deserialize_detach(ctx.ex.clone(), bytes, |msg| {
+    deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::echo(
             ctx.ex.clone(),
             hdr.seq_no,

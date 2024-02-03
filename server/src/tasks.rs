@@ -74,12 +74,12 @@ pub(super) mod handlers {
             ))
             .await;
 
-        let res = resp_recv
+        let recv_res = resp_recv
             .recv()
             .await
             .map(|r| r.downcast::<Result<(), ()>>().unwrap());
 
-        if let Ok(resp) = res.as_deref() {
+        if let Ok(resp) = recv_res.as_deref() {
             if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, resp, &mut buf) {
                 let _ = sock.send_to(used, addr).await;
             }
@@ -104,7 +104,7 @@ pub(super) mod handlers {
             Status::Error => LedColor::Red,
         };
 
-        // For now, we give up on any send/recv/downcast/deserialize errors and
+        // For now, we give up on any send/recv/cl/deserialize errors and
         // rely on client to time out.
         let _ = req_send
             .send((
@@ -295,7 +295,7 @@ pub(super) mod background {
 
             match select(req_recv.recv(), wait_done_recv.clone().recv()).await {
                 FinishedFirst::Them(_) => match state {
-                    BlinkState::Init => {
+                    BlinkState::Init | BlinkState::Slow => {
                         state = BlinkState::Off;
                     }
                     BlinkState::Off => {
@@ -306,9 +306,6 @@ pub(super) mod background {
                     }
                     BlinkState::Med => {
                         state = BlinkState::Slow;
-                    }
-                    BlinkState::Slow => {
-                        state = BlinkState::Off;
                     }
                 },
                 FinishedFirst::Us(Ok(led)) => {

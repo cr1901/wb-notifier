@@ -31,5 +31,14 @@ members = [ "client", "driver", "proto", "server" ]
 [profile.release]
 opt-level = "z"
 
-[workspace.lints]
-clippy = { map_err_ignore = "warn" }
+[workspace.lints.clippy]
+map_err_ignore = "warn"
+pedantic = { level = "warn", priority = -1}
+wildcard_imports = "allow"
+module_name_repetitions = "allow"
+
+# FIXME: Internal for-my-own-use crate, subject to change. Docs are not priority while
+# crate is in flux.
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+
