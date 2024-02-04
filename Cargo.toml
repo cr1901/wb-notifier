@@ -29,7 +29,9 @@ server = [ "dep:smol", "dep:wb-notifier-server", "dep:directories", "dep:config"
 members = [ "client", "driver", "proto", "server" ]
 
 [profile.release]
+codegen-units = 1
 opt-level = "z"
+lto = "fat"
 
 [workspace.lints.clippy]
 map_err_ignore = "warn"
