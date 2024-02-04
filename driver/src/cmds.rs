@@ -16,6 +16,7 @@ pub enum Bargraph {
     MediumBlink,
     SlowBlink,
     StopBlink,
+    ClearAll
 }
 
 #[derive(Debug)]

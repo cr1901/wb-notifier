@@ -3,7 +3,8 @@ Description=Workbench Notifier Service
 After=network.target
 
 [Service]
-ExecStart=/home/wjones/.cargo/bin/wb-notifier /dev/i2c-1 -p 12000
+# Replace $HOME with actual path.
+ExecStart=$HOME/.cargo/bin/wb-notifier /dev/i2c-1 -p 12000
 User=wjones
 
 [Install]

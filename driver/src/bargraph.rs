@@ -86,6 +86,23 @@ where
         Ok(())
     }
 
+    pub fn clear_all(&mut self) -> Result<(), Error<E>> {
+        for num in 0..24 {
+            let row = if num >= 12 { num % 4 + 4 } else { num % 4 };
+            let col = (num / 4) % 3;
+    
+            let red_loc = LedLocation::new(row, col).unwrap();
+            let green_loc = LedLocation::new(row + 8, col).unwrap();
+    
+            self.drv.update_display_buffer(red_loc, false);
+            self.drv.update_display_buffer(green_loc, false);
+        }
+
+        self.drv.write_display_buffer()?;
+
+        Ok(())
+    }
+
     pub fn set_dimming(&mut self, dim: Dimming) -> Result<(), Error<E>> {
         self.drv.set_dimming(dim)?;
 

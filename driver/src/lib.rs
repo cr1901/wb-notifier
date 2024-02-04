@@ -107,6 +107,11 @@ where
                     bg.set_display(bargraph::Display::ON)
                 })?;
             }
+            Request::Bargraph(cmds::Bargraph::ClearAll) => {
+                do_bargraph(&resp, sensors, |bg| {
+                    bg.clear_all()
+                })?;
+            }
             _ => unimplemented!(),
         }
 

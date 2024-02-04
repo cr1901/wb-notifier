@@ -48,7 +48,7 @@ mod client {
     /// clear message from workbench daemon
     pub struct AckSubCommand {
         #[argh(option, short = 'l')]
-        /// message number/LED to bind to clear
+        /// message number/LED to bind to clear; clears all without this option
         pub num: Option<u8>,
     }
 
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
         Cmd::Ack(AckSubCommand { num }) => {
             client.ack(
                 Ack {
-                    num: num.unwrap_or(0),
+                    num,
                 },
                 &mut buf,
             )?;

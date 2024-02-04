@@ -155,15 +155,28 @@ pub(super) mod handlers {
         let (resp_send, resp_recv) = bounded(1);
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
-        let _ = req_send
-            .send((
-                Request::Bargraph(cmds::Bargraph::SetLedNo {
-                    num,
-                    color: LedColor::Off,
-                }),
-                resp_send,
-            ))
-            .await;
+
+        match num {
+            Some(num) => {
+                let _ = req_send
+                .send((
+                    Request::Bargraph(cmds::Bargraph::SetLedNo {
+                        num,
+                        color: LedColor::Off,
+                    }),
+                    resp_send,
+                ))
+                .await;
+            },
+            None => {
+                let _ = req_send
+                .send((
+                    Request::Bargraph(cmds::Bargraph::ClearAll),
+                    resp_send,
+                ))
+                .await;
+            }
+        }
 
         let recv_res: Result<(), RequestError>;
         if let Ok(raw_res) = resp_recv.recv().await {
