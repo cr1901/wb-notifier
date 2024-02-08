@@ -4,7 +4,9 @@ use eyre::Result;
 mod client {
     use std::fmt::Write;
     use std::net::{AddrParseError, SocketAddr};
+    pub use std::time::Duration;
 
+    use fundu::DurationParser;
     pub use wb_notifier_client::Client;
     pub use wb_notifier_proto::*;
 
@@ -16,6 +18,9 @@ mod client {
         /// address to connect to
         #[argh(positional, from_str_fn(sock_parse))]
         pub addr: SocketAddr,
+        /// timeout for receive socket
+        #[argh(option, short = 't', from_str_fn(duration_parse))]
+        pub timeout: Option<Duration>,
         #[argh(subcommand)]
         pub cmd: Cmd,
     }
@@ -101,6 +106,13 @@ mod client {
             msg
         })
     }
+
+    fn duration_parse(timeout: &str) -> Result<Duration, String> {
+        let parser = DurationParser::new();
+        Duration::try_from(parser.parse(timeout).map_err(|e| {
+            e.to_string()
+        })?).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(feature = "client")]
@@ -111,7 +123,7 @@ fn main() -> Result<()> {
     let args: ClientArgs = argh::from_env();
 
     let mut client = Client::new();
-    client.connect(args.addr)?;
+    client.connect(args.addr, args.timeout.or(Some(Duration::from_millis(1000))))?;
 
     let mut buf = vec![0; 1024];
 

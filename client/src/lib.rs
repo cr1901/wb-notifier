@@ -77,12 +77,12 @@ impl Client {
         Self { sock: None }
     }
 
-    pub fn connect<S>(&mut self, addr: S) -> Result<(), Error>
+    pub fn connect<S>(&mut self, addr: S, timeout: Option<Duration>) -> Result<(), Error>
     where
         S: ToSocketAddrs,
     {
         let sock = UdpSocket::bind("0.0.0.0:0")?;
-        sock.set_read_timeout(Some(Duration::from_millis(150)))?;
+        sock.set_read_timeout(timeout)?;
         sock.connect(addr)?;
 
         self.sock = Some(sock);
