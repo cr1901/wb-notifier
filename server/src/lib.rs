@@ -1,5 +1,4 @@
 use async_channel::{bounded, Sender};
-use async_channel::{RecvError, SendError};
 use async_executor::LocalExecutor;
 use async_lock::Mutex;
 use async_net::{SocketAddr, UdpSocket};
@@ -8,7 +7,8 @@ use embedded_hal::blocking::i2c::{Write, WriteRead};
 use linux_embedded_hal::I2cdev;
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
-use wb_notifier_driver::bargraph::Bargraph;
+use wb_notifier_driver::Sensors;
+use wb_notifier_driver::bargraph::{Bargraph, Dimming};
 
 use std::error;
 use std::fmt;
@@ -17,8 +17,7 @@ use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use wb_notifier_driver::cmds::InitFailure;
-use wb_notifier_driver::{self, Request, Response};
+use wb_notifier_driver;
 use wb_notifier_proto::*;
 
 mod tasks;
@@ -39,15 +38,12 @@ pub struct Server {
     devices: Vec<Device>,
 }
 
-type AsyncSend = Sender<(Request, Sender<Response>)>;
-
 struct Context<'ex, 'b, I2C> {
     ex: &'b Rc<LocalExecutor<'ex>>,
     sock: UdpSocket,
     addr: Option<SocketAddr>,
-    send: Option<AsyncSend>,
     blink_send: Option<Sender<tasks::background::BlinkInfo>>,
-    bg: Option<&'b Arc<Mutex<Bargraph<I2C>>>>,
+    sensors: Sensors<'b, I2C>
 }
 
 impl<'ex, 'b, I2C> Context<'ex, 'b, I2C> {
@@ -56,9 +52,8 @@ impl<'ex, 'b, I2C> Context<'ex, 'b, I2C> {
             ex,
             sock,
             addr: None,
-            send: None,
             blink_send: None,
-            bg: None,
+            sensors: Sensors::new(),
         }
     }
 }
@@ -103,18 +98,21 @@ impl error::Error for Error {
 
 #[derive(Debug)]
 pub enum InitError {
-    SendChannel(SendError<(Request, Sender<Response>)>),
-    RecvChannel(RecvError),
-    DriverThread(InitFailure),
+    Driver(Driver),
     Dispatch(&'static str),
 }
 
 impl fmt::Display for InitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InitError::SendChannel(_) => write!(f, "sensor thread closed send channel"),
-            InitError::RecvChannel(_) => write!(f, "did not receive response from sensor thread"),
-            InitError::DriverThread(_) => write!(f, "sensor thread failed to initialize"),
+            InitError::Driver(d) => {
+                let drv = match d {
+                    Driver::Bargraph => "bargraph",
+                    Driver::Hd44780 => "lcd",
+                };
+
+                write!(f, "driver {drv} could not communicate with device")
+            },
             InitError::Dispatch(_) => write!(f, "dispatch table failed to initialize"),
         }
     }
@@ -123,9 +121,7 @@ impl fmt::Display for InitError {
 impl error::Error for InitError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            InitError::SendChannel(s) => Some(s),
-            InitError::RecvChannel(r) => Some(r),
-            InitError::DriverThread(d) => Some(d),
+            InitError::Driver(_) => None,
             InitError::Dispatch(d) => {
                 let box_err = Box::<dyn error::Error + 'static>::from(*d);
                 Some(Box::<dyn error::Error + 'static>::leak(box_err))
@@ -149,7 +145,6 @@ impl Server {
             Dispatch::<Context<_>, Error, 16>::new(Context::new(&ex, socket.clone()));
 
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| Error::Io(e.into()))?;
-        let (sensor_send, sensor_recv) = bounded(16);
         let bus: &'static _ = shared_bus::new_std!(I2cdev = i2c).unwrap();
 
         self.devices
@@ -160,11 +155,17 @@ impl Server {
                 match d.driver {
                     Driver::Bargraph => {
                         let arc_bg = Arc::new(Mutex::new(Bargraph::new(bus.acquire_i2c(), d.addr)));
-                        arc_bg.try_lock_arc().unwrap().initialize().map_err(|_| {
-                            Error::Init(InitError::DriverThread(InitFailure::Driver(
-                                Driver::Bargraph,
-                            )))
-                        })?;
+                        {
+                            let mut bg = arc_bg.try_lock_arc().unwrap();
+                            
+                            bg.initialize().map_err(|_| {
+                                Error::Init(InitError::Driver(Driver::Bargraph))
+                            })?;
+
+                            bg.set_dimming(Dimming::BRIGHTNESS_3_16).map_err(|_| {
+                                Error::Init(InitError::Driver(Driver::Bargraph))
+                            })?;
+                        }
 
                         let (blink_send, blink_recv) = bounded(1);
                         ex.spawn(tasks::background::blink(
@@ -186,7 +187,7 @@ impl Server {
             })
             .collect::<Result<Vec<()>, Error>>()?;
 
-        dispatch.context().bg = bg.as_ref();
+        dispatch.context().sensors.bargraph = bg.as_ref();
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)
@@ -203,7 +204,6 @@ impl Server {
         dispatch
             .add_handler::<AckEndpoint>(ack_handler)
             .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
-        dispatch.context().send = Some(sensor_send);
 
         loop {
             let (n, addr) = socket.recv_from(&mut buf).await?;
@@ -255,7 +255,7 @@ where
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
-            ctx.bg.unwrap().clone(),
+            ctx.sensors.bargraph.unwrap().clone(),
             msg,
         )
     })
@@ -276,7 +276,7 @@ where
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
-            ctx.bg.unwrap().clone(),
+            ctx.sensors.bargraph.unwrap().clone(),
             msg,
         )
     })
@@ -298,7 +298,7 @@ where
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
             ctx.blink_send.clone().unwrap(),
-            ctx.bg.unwrap().clone(),
+            ctx.sensors.bargraph.unwrap().clone(),
             msg,
         )
     })
@@ -320,7 +320,7 @@ where
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
             ctx.blink_send.clone().unwrap(),
-            ctx.bg.unwrap().clone(),
+            ctx.sensors.bargraph.unwrap().clone(),
             msg,
         )
     })
