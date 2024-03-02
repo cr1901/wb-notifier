@@ -24,8 +24,11 @@ pub struct RequestError {}
 
 impl fmt::Display for RequestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "driver could not honor request, check error endpoint for details")
+        write!(
+            f,
+            "driver could not honor request, check error endpoint for details"
+        )
     }
 }
 
-impl error::Error for RequestError { }
+impl error::Error for RequestError {}

@@ -43,9 +43,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            Error::NotConnected
-            | Error::BadResponse(_)
-            | Error::NoResponse(_) => None,
+            Error::NotConnected | Error::BadResponse(_) | Error::NoResponse(_) => None,
             Error::Io(e) => Some(e),
             Error::Parse(p) => Some(p),
             Error::RequestFailed(r) => Some(r),

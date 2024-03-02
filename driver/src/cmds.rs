@@ -16,7 +16,7 @@ pub enum Bargraph {
     MediumBlink,
     SlowBlink,
     StopBlink,
-    ClearAll
+    ClearAll,
 }
 
 #[derive(Debug)]
@@ -33,13 +33,19 @@ impl fmt::Display for InitFailure {
             InitFailure::Driver(d) => {
                 let drv = match d {
                     Driver::Bargraph => "bargraph",
-                    Driver::Hd44780 => "lcd"
+                    Driver::Hd44780 => "lcd",
                 };
 
                 write!(f, "driver {drv} could not communicate with device")
             }
-            InitFailure::DeviceNotFound(Device { name: _name, addr: _addr, driver: _driver }) => write!(f, "unused placeholder"),
-            InitFailure::RespChannelClosed => write!(f, "response channel to executor thread closed"),
+            InitFailure::DeviceNotFound(Device {
+                name: _name,
+                addr: _addr,
+                driver: _driver,
+            }) => write!(f, "unused placeholder"),
+            InitFailure::RespChannelClosed => {
+                write!(f, "response channel to executor thread closed")
+            }
         }
     }
 }
@@ -55,9 +61,8 @@ pub enum Error {
     /// Intended to only be consumed by server main loop.
     Init(InitFailure),
     /// Can be returned to client.
-    Client(RequestError)
+    Client(RequestError),
 }
-
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -72,7 +77,7 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Error::Init(i) => Some(i),
-            Error::Client(c) => Some(c)
+            Error::Client(c) => Some(c),
         }
     }
 }

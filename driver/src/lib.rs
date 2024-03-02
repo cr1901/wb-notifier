@@ -83,9 +83,7 @@ where
                 do_bargraph(&resp, sensors, |bg| bg.set_dimming(pwm))?;
             }
             Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }) => {
-                do_bargraph(&resp, sensors, |bg| {
-                    bg.set_led_no(num, color)
-                })?;
+                do_bargraph(&resp, sensors, |bg| bg.set_led_no(num, color))?;
             }
             Request::Bargraph(cmds::Bargraph::FastBlink) => {
                 do_bargraph(&resp, sensors, |bg| {
@@ -103,14 +101,10 @@ where
                 })?;
             }
             Request::Bargraph(cmds::Bargraph::StopBlink) => {
-                do_bargraph(&resp, sensors, |bg| {
-                    bg.set_display(bargraph::Display::ON)
-                })?;
+                do_bargraph(&resp, sensors, |bg| bg.set_display(bargraph::Display::ON))?;
             }
             Request::Bargraph(cmds::Bargraph::ClearAll) => {
-                do_bargraph(&resp, sensors, |bg| {
-                    bg.clear_all()
-                })?;
+                do_bargraph(&resp, sensors, |bg| bg.clear_all())?;
             }
             _ => unimplemented!(),
         }
@@ -194,12 +188,9 @@ where
     let bg = sensors.bargraph.as_mut().ok_or(InternalError::Transient)?;
 
     let client_msg: Result<Box<dyn Any + Send>, _> = match req(bg) {
-        Ok(t) => {
-            Ok(Box::new(t))
-        },
+        Ok(t) => Ok(Box::new(t)),
         Err(e) => {
-            let _err_channel_err: Box<dyn error::Error + Send> =
-                    Box::new(e);
+            let _err_channel_err: Box<dyn error::Error + Send> = Box::new(e);
             Err(Error::Client(RequestError {}))
         }
     };

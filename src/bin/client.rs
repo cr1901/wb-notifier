@@ -109,9 +109,8 @@ mod client {
 
     fn duration_parse(timeout: &str) -> Result<Duration, String> {
         let parser = DurationParser::new();
-        Duration::try_from(parser.parse(timeout).map_err(|e| {
-            e.to_string()
-        })?).map_err(|e| e.to_string())
+        Duration::try_from(parser.parse(timeout).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -123,7 +122,10 @@ fn main() -> Result<()> {
     let args: ClientArgs = argh::from_env();
 
     let mut client = Client::new();
-    client.connect(args.addr, args.timeout.or(Some(Duration::from_millis(1000))))?;
+    client.connect(
+        args.addr,
+        args.timeout.or(Some(Duration::from_millis(1000))),
+    )?;
 
     let mut buf = vec![0; 1024];
 
@@ -142,12 +144,7 @@ fn main() -> Result<()> {
             )?;
         }
         Cmd::Ack(AckSubCommand { num }) => {
-            client.ack(
-                Ack {
-                    num,
-                },
-                &mut buf,
-            )?;
+            client.ack(Ack { num }, &mut buf)?;
         }
         Cmd::ConfigBargraph(ConfigBargraphSubCommand { level }) => {
             client.set_dimming(level.unwrap_or(SetDimming::Hi), &mut buf)?;

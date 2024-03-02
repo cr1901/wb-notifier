@@ -9,11 +9,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use wb_notifier_driver::bargraph;
-use wb_notifier_driver::cmds;
-use wb_notifier_driver::{self, Request};
-use wb_notifier_proto::*;
 
-use super::AsyncSend;
+use wb_notifier_driver::{self};
+use wb_notifier_proto::*;
 
 pub(super) mod handlers {
     use super::*;
@@ -26,15 +24,16 @@ pub(super) mod handlers {
         (sock, addr): (UdpSocket, SocketAddr),
         bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         SetLed { num, color }: SetLed,
-    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+    ) where
+        I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+        E: Send + 'static,
+    {
         let mut buf = vec![0u8; 1024];
 
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
         let bg = bg.clone();
-        let res = unblock(move || {
-            bg.lock_arc_blocking().set_led_no(num, color)
-        }).await;
+        let res = unblock(move || bg.lock_arc_blocking().set_led_no(num, color)).await;
 
         let resp_res = if res.is_ok() {
             SetLedResponse(Ok(()))
@@ -54,7 +53,10 @@ pub(super) mod handlers {
         (sock, addr): (UdpSocket, SocketAddr),
         bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         dimming: SetDimming,
-    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+    ) where
+        I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+        E: Send + 'static,
+    {
         let mut buf = vec![0u8; 1024];
 
         let req = match dimming {
@@ -65,9 +67,7 @@ pub(super) mod handlers {
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
         let bg = bg.clone();
-        let res = unblock(move || {
-            bg.lock_arc_blocking().set_dimming(req)
-        }).await;
+        let res = unblock(move || bg.lock_arc_blocking().set_dimming(req)).await;
 
         let resp_res = if res.is_ok() {
             SetDimmingResponse(Ok(()))
@@ -88,7 +88,10 @@ pub(super) mod handlers {
         blink_send: Sender<BlinkInfo>,
         bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         Notify { num, status }: Notify,
-    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+    ) where
+        I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+        E: Send + 'static,
+    {
         let mut buf = vec![0u8; 1024];
 
         let color = match status {
@@ -100,9 +103,7 @@ pub(super) mod handlers {
         // For now, we give up on any send/recv/cl/deserialize errors and
         // rely on client to time out.
         let bg = bg.clone();
-        let res = unblock(move || {
-            bg.lock_arc_blocking().set_led_no(num, color)
-        }).await;
+        let res = unblock(move || bg.lock_arc_blocking().set_led_no(num, color)).await;
 
         let resp_res = if res.is_ok() {
             NotifyResponse(Ok(()))
@@ -124,7 +125,10 @@ pub(super) mod handlers {
         blink_send: Sender<BlinkInfo>,
         bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         Ack { num }: Ack,
-    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+    ) where
+        I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+        E: Send + 'static,
+    {
         let mut buf = vec![0u8; 1024];
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
@@ -133,21 +137,18 @@ pub(super) mod handlers {
         match num {
             Some(num) => {
                 let bg = bg.clone();
-                let res = unblock(move || {
-                    bg.lock_arc_blocking().set_led_no(num, LedColor::Off)
-                }).await;
+                let res =
+                    unblock(move || bg.lock_arc_blocking().set_led_no(num, LedColor::Off)).await;
 
                 resp_res = if res.is_err() {
                     AckResponse(Ok(()))
                 } else {
                     AckResponse(Err(RequestError {}))
                 };
-            },
+            }
             None => {
                 let bg = bg.clone();
-                let res = unblock(move || {
-                    bg.lock_arc_blocking().clear_all()
-                }).await;
+                let res = unblock(move || bg.lock_arc_blocking().clear_all()).await;
 
                 resp_res = if res.is_ok() {
                     AckResponse(Ok(()))
@@ -232,7 +233,10 @@ pub(super) mod background {
         // For now, dispatch to blink task from server without having a channel
         // to send a response.
         req_recv: Receiver<BlinkInfo>,
-    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+    ) where
+        I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+        E: Send + 'static,
+    {
         let mut state = BlinkState::Init;
         let (wait_done_send, wait_done_recv) = bounded(1);
         // let (driver_resp_send, driver_resp_recv) = bounded(1);
@@ -247,14 +251,18 @@ pub(super) mod background {
                     let bg = bg.clone();
                     unblock(move || {
                         let _ = bg.lock_arc_blocking().set_display(bargraph::Display::ON);
-                    }).await;
+                    })
+                    .await;
                     curr_task = ex.spawn(future::pending());
                 }
                 BlinkState::Fast => {
                     let bg = bg.clone();
                     unblock(move || {
-                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::TWO_HZ);
-                    }).await;
+                        let _ = bg
+                            .lock_arc_blocking()
+                            .set_display(bargraph::Display::TWO_HZ);
+                    })
+                    .await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(60),
                         wait_done_send.clone(),
@@ -263,8 +271,11 @@ pub(super) mod background {
                 BlinkState::Med => {
                     let bg = bg.clone();
                     unblock(move || {
-                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::ONE_HZ);
-                    }).await;
+                        let _ = bg
+                            .lock_arc_blocking()
+                            .set_display(bargraph::Display::ONE_HZ);
+                    })
+                    .await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(300),
                         wait_done_send.clone(),
@@ -273,8 +284,11 @@ pub(super) mod background {
                 BlinkState::Slow => {
                     let bg = bg.clone();
                     unblock(move || {
-                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::HALF_HZ);
-                    }).await;
+                        let _ = bg
+                            .lock_arc_blocking()
+                            .set_display(bargraph::Display::HALF_HZ);
+                    })
+                    .await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(900),
                         wait_done_send.clone(),

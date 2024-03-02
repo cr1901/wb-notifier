@@ -3,21 +3,19 @@ use async_channel::{RecvError, SendError};
 use async_executor::LocalExecutor;
 use async_lock::Mutex;
 use async_net::{SocketAddr, UdpSocket};
-use blocking::unblock;
+
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 use linux_embedded_hal::I2cdev;
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
 use wb_notifier_driver::bargraph::Bargraph;
 
-use std::any::Any;
 use std::error;
 use std::fmt;
 use std::future::Future;
 use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread;
 
 use wb_notifier_driver::cmds::InitFailure;
 use wb_notifier_driver::{self, Request, Response};
@@ -161,12 +159,11 @@ impl Server {
 
                 match d.driver {
                     Driver::Bargraph => {
-                        let arc_bg = Arc::new(Mutex::new(Bargraph::new(
-                            bus.acquire_i2c(),
-                            d.addr,
-                        )));
+                        let arc_bg = Arc::new(Mutex::new(Bargraph::new(bus.acquire_i2c(), d.addr)));
                         arc_bg.try_lock_arc().unwrap().initialize().map_err(|_| {
-                            Error::Init(InitError::DriverThread(InitFailure::Driver(Driver::Bargraph)))
+                            Error::Init(InitError::DriverThread(InitFailure::Driver(
+                                Driver::Bargraph,
+                            )))
                         })?;
 
                         let (blink_send, blink_recv) = bounded(1);
@@ -247,7 +244,11 @@ fn set_led_handler<I2C, E>(
     hdr: &WireHeader,
     ctx: &mut Context<'_, '_, I2C>,
     bytes: &[u8],
-) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static  {
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+{
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_led(
             ctx.ex.clone(),
@@ -264,7 +265,11 @@ fn set_dimming_handler<I2C, E>(
     hdr: &WireHeader,
     ctx: &mut Context<'_, '_, I2C>,
     bytes: &[u8],
-) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static  {
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+{
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_dimming(
             ctx.ex.clone(),
@@ -281,7 +286,11 @@ fn notify_handler<I2C, E>(
     hdr: &WireHeader,
     ctx: &mut Context<'_, '_, I2C>,
     bytes: &[u8],
-) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+{
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::notify(
             ctx.ex.clone(),
@@ -299,7 +308,11 @@ fn ack_handler<I2C, E>(
     hdr: &WireHeader,
     ctx: &mut Context<'_, '_, I2C>,
     bytes: &[u8],
-) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+{
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::ack(
             ctx.ex.clone(),
