@@ -1,10 +1,14 @@
-use async_channel::{RecvError, SendError};
 use async_channel::{bounded, Sender};
+use async_channel::{RecvError, SendError};
 use async_executor::LocalExecutor;
+use async_lock::Mutex;
 use async_net::{SocketAddr, UdpSocket};
+use blocking::unblock;
+use embedded_hal::blocking::i2c::{Write, WriteRead};
 use linux_embedded_hal::I2cdev;
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
+use wb_notifier_driver::bargraph::Bargraph;
 
 use std::any::Any;
 use std::error;
@@ -12,6 +16,7 @@ use std::fmt;
 use std::future::Future;
 use std::io;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 
 use wb_notifier_driver::cmds::InitFailure;
@@ -38,15 +43,16 @@ pub struct Server {
 
 type AsyncSend = Sender<(Request, Sender<Response>)>;
 
-struct Context<'ex, 'b> {
+struct Context<'ex, 'b, I2C> {
     ex: &'b Rc<LocalExecutor<'ex>>,
     sock: UdpSocket,
     addr: Option<SocketAddr>,
     send: Option<AsyncSend>,
     blink_send: Option<Sender<tasks::background::BlinkInfo>>,
+    bg: Option<&'b Arc<Mutex<Bargraph<I2C>>>>,
 }
 
-impl<'ex, 'b> Context<'ex, 'b> {
+impl<'ex, 'b, I2C> Context<'ex, 'b, I2C> {
     fn new(ex: &'b Rc<LocalExecutor<'ex>>, sock: UdpSocket) -> Self {
         Self {
             ex,
@@ -54,6 +60,7 @@ impl<'ex, 'b> Context<'ex, 'b> {
             addr: None,
             send: None,
             blink_send: None,
+            bg: None,
         }
     }
 }
@@ -101,7 +108,7 @@ pub enum InitError {
     SendChannel(SendError<(Request, Sender<Response>)>),
     RecvChannel(RecvError),
     DriverThread(InitFailure),
-    Dispatch(&'static str)
+    Dispatch(&'static str),
 }
 
 impl fmt::Display for InitError {
@@ -110,7 +117,7 @@ impl fmt::Display for InitError {
             InitError::SendChannel(_) => write!(f, "sensor thread closed send channel"),
             InitError::RecvChannel(_) => write!(f, "did not receive response from sensor thread"),
             InitError::DriverThread(_) => write!(f, "sensor thread failed to initialize"),
-            InitError::Dispatch(_) => write!(f, "dispatch table failed to initialize")
+            InitError::Dispatch(_) => write!(f, "dispatch table failed to initialize"),
         }
     }
 }
@@ -135,46 +142,42 @@ impl Server {
         Self { addr, devices }
     }
 
-    fn send_init_msg(send: &AsyncSend, dev: &Device) -> Result<Box<dyn Any + Send>, Error> {
-        let (resp_send, resp_recv) = bounded(1);
-        send.send_blocking((Request::Init(dev.clone()), resp_send))
-            .map_err(|s| Error::Init(InitError::SendChannel(s)))?;
-
-        let raw_res: Result<Box<dyn Any + Send>, wb_notifier_driver::cmds::Error> = resp_recv
-            .recv_blocking()
-            .map_err(|r| Error::Init(InitError::RecvChannel(r)))?;
-
-        match raw_res {
-            Ok(r) => Ok(r),
-            Err(wb_notifier_driver::cmds::Error::Init(e)) => Err(Error::Init(InitError::DriverThread(e))),
-            _ => unreachable!()
-        }
-    }
-
     pub async fn main_loop(self, ex: Rc<LocalExecutor<'_>>) -> Result<(), Error> {
         let socket = UdpSocket::bind(self.addr).await?;
         let mut buf = vec![0u8; 1024];
-        let mut dispatch = Dispatch::<Context, Error, 16>::new(Context::new(&ex, socket.clone()));
+
+        let mut bg = None;
+        let mut dispatch =
+            Dispatch::<Context<_>, Error, 16>::new(Context::new(&ex, socket.clone()));
 
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| Error::Io(e.into()))?;
         let (sensor_send, sensor_recv) = bounded(16);
-
-        thread::spawn(move || wb_notifier_driver::main_loop::<_,_,>(i2c, &sensor_recv));
+        let bus: &'static _ = shared_bus::new_std!(I2cdev = i2c).unwrap();
 
         self.devices
             .iter()
             .map(|d| {
-                Self::send_init_msg(&sensor_send, d)?;
+                // Self::send_init_msg(&sensor_send, d)?;
 
                 match d.driver {
                     Driver::Bargraph => {
+                        let arc_bg = Arc::new(Mutex::new(Bargraph::new(
+                            bus.acquire_i2c(),
+                            d.addr,
+                        )));
+                        arc_bg.try_lock_arc().unwrap().initialize().map_err(|_| {
+                            Error::Init(InitError::DriverThread(InitFailure::Driver(Driver::Bargraph)))
+                        })?;
+
                         let (blink_send, blink_recv) = bounded(1);
                         ex.spawn(tasks::background::blink(
                             ex.clone(),
-                            sensor_send.clone(),
+                            arc_bg.clone(),
                             blink_recv,
                         ))
                         .detach();
+
+                        bg.replace(arc_bg);
                         dispatch.context().blink_send = Some(blink_send);
                     }
                     Driver::Hd44780 => {
@@ -185,6 +188,8 @@ impl Server {
                 Ok(())
             })
             .collect::<Result<Vec<()>, Error>>()?;
+
+        dispatch.context().bg = bg.as_ref();
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)
@@ -238,65 +243,81 @@ where
     }
 }
 
-fn set_led_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
+fn set_led_handler<I2C, E>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'_, '_, I2C>,
+    bytes: &[u8],
+) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static  {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_led(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
-            ctx.send.clone().unwrap(),
+            ctx.bg.unwrap().clone(),
             msg,
         )
     })
 }
 
-fn set_dimming_handler(
+fn set_dimming_handler<I2C, E>(
     hdr: &WireHeader,
-    ctx: &mut Context<'_, '_>,
+    ctx: &mut Context<'_, '_, I2C>,
     bytes: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static  {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_dimming(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
-            ctx.send.clone().unwrap(),
+            ctx.bg.unwrap().clone(),
             msg,
         )
     })
 }
 
-fn notify_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
+fn notify_handler<I2C, E>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'_, '_, I2C>,
+    bytes: &[u8],
+) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::notify(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
-            ctx.send.clone().unwrap(),
             ctx.blink_send.clone().unwrap(),
+            ctx.bg.unwrap().clone(),
             msg,
         )
     })
 }
 
-fn ack_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
+fn ack_handler<I2C, E>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'_, '_, I2C>,
+    bytes: &[u8],
+) -> Result<(), Error> where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::ack(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
-            ctx.send.clone().unwrap(),
             ctx.blink_send.clone().unwrap(),
+            ctx.bg.unwrap().clone(),
             msg,
         )
     })
 }
 
-fn echo_handler(hdr: &WireHeader, ctx: &mut Context<'_, '_>, bytes: &[u8]) -> Result<(), Error> {
+fn echo_handler<I2C>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'_, '_, I2C>,
+    bytes: &[u8],
+) -> Result<(), Error> {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::echo(
             ctx.ex.clone(),

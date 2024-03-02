@@ -1,8 +1,12 @@
 use async_channel::{bounded, Sender};
 use async_executor::LocalExecutor;
+use async_lock::Mutex;
 use async_net::{SocketAddr, UdpSocket};
+use blocking::unblock;
+use embedded_hal::blocking::i2c::{Write, WriteRead};
 use postcard_rpc::{self, Key};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use wb_notifier_driver::bargraph;
 use wb_notifier_driver::cmds;
@@ -15,56 +19,43 @@ pub(super) mod handlers {
     use super::*;
     use background::BlinkInfo;
 
-    pub async fn set_led<'a>(
+    pub async fn set_led<'a, I2C, E>(
         _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
-        req_send: AsyncSend,
+        bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         SetLed { num, color }: SetLed,
-    ) {
+    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
         let mut buf = vec![0u8; 1024];
-
-        let (resp_send, resp_recv) = bounded(1);
 
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
-        let _ = req_send
-            .send((
-                Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }),
-                resp_send,
-            ))
-            .await;
+        let bg = bg.clone();
+        let res = unblock(move || {
+            bg.lock_arc_blocking().set_led_no(num, color)
+        }).await;
 
-        let recv_res: Result<(), RequestError>;
-        if let Ok(raw_res) = resp_recv.recv().await {
-            recv_res = raw_res
-                .map(|r| *r.downcast::<()>().unwrap())
-                .map_err(|e| match e {
-                    cmds::Error::Client(_) => RequestError {},
-                    _ => unreachable!(),
-                });
+        let resp_res = if res.is_ok() {
+            SetLedResponse(Ok(()))
         } else {
-            return
-        }
+            SetLedResponse(Err(RequestError {}))
+        };
 
-
-        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &SetLedResponse(recv_res), &mut buf) {
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp_res, &mut buf) {
             let _ = sock.send_to(used, addr).await;
         }
     }
 
-    pub async fn set_dimming<'a>(
+    pub async fn set_dimming<'a, I2C, E>(
         _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
-        req_send: AsyncSend,
+        bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         dimming: SetDimming,
-    ) {
+    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
         let mut buf = vec![0u8; 1024];
-
-        let (resp_send, resp_recv) = bounded(1);
 
         let req = match dimming {
             SetDimming::Hi => bargraph::Dimming::BRIGHTNESS_16_16,
@@ -73,41 +64,32 @@ pub(super) mod handlers {
 
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
-        let _ = req_send
-            .send((
-                Request::Bargraph(cmds::Bargraph::SetBrightness { pwm: req }),
-                resp_send,
-            ))
-            .await;
+        let bg = bg.clone();
+        let res = unblock(move || {
+            bg.lock_arc_blocking().set_dimming(req)
+        }).await;
 
-        let recv_res: Result<(), RequestError>;
-        if let Ok(raw_res) = resp_recv.recv().await {
-            recv_res = raw_res
-                .map(|r| *r.downcast::<()>().unwrap())
-                .map_err(|e| match e {
-                    cmds::Error::Client(_) => RequestError {},
-                    _ => unreachable!(),
-                });
+        let resp_res = if res.is_ok() {
+            SetDimmingResponse(Ok(()))
         } else {
-            return
-        }
+            SetDimmingResponse(Err(RequestError {}))
+        };
 
-        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &SetDimmingResponse(recv_res), &mut buf) {
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp_res, &mut buf) {
             let _ = sock.send_to(used, addr).await;
         }
     }
 
-    pub async fn notify<'a>(
+    pub async fn notify<'a, I2C, E>(
         _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
-        req_send: AsyncSend,
         blink_send: Sender<BlinkInfo>,
+        bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         Notify { num, status }: Notify,
-    ) {
+    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
         let mut buf = vec![0u8; 1024];
-        let (resp_send, resp_recv) = bounded(1);
 
         let color = match status {
             Status::Ok => LedColor::Green,
@@ -117,81 +99,66 @@ pub(super) mod handlers {
 
         // For now, we give up on any send/recv/cl/deserialize errors and
         // rely on client to time out.
-        let _ = req_send
-            .send((
-                Request::Bargraph(cmds::Bargraph::SetLedNo { num, color }),
-                resp_send,
-            ))
-            .await;
+        let bg = bg.clone();
+        let res = unblock(move || {
+            bg.lock_arc_blocking().set_led_no(num, color)
+        }).await;
 
-        let recv_res: Result<(), RequestError>;
-        if let Ok(raw_res) = resp_recv.recv().await {
-            recv_res = raw_res
-                .map(|r| *r.downcast::<()>().unwrap())
-                .map_err(|e| match e {
-                    cmds::Error::Client(_) => RequestError {},
-                    _ => unreachable!(),
-                });
+        let resp_res = if res.is_ok() {
+            NotifyResponse(Ok(()))
         } else {
-            return
-        }
+            NotifyResponse(Err(RequestError {}))
+        };
 
         let _ = blink_send.send(BlinkInfo::LedSet).await;
-        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &NotifyResponse(recv_res), &mut buf) {
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp_res, &mut buf) {
             let _ = sock.send_to(used, addr).await;
         }
     }
 
-    pub async fn ack<'a>(
+    pub async fn ack<'a, I2C, E>(
         _ex: Rc<LocalExecutor<'_>>,
         seq_no: u32,
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
-        req_send: AsyncSend,
         blink_send: Sender<BlinkInfo>,
+        bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         Ack { num }: Ack,
-    ) {
+    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
         let mut buf = vec![0u8; 1024];
-        let (resp_send, resp_recv) = bounded(1);
         // For now, we give up on any send/recv/downcast/deserialize errors and
         // rely on client to time out.
 
+        let resp_res;
         match num {
             Some(num) => {
-                let _ = req_send
-                .send((
-                    Request::Bargraph(cmds::Bargraph::SetLedNo {
-                        num,
-                        color: LedColor::Off,
-                    }),
-                    resp_send,
-                ))
-                .await;
+                let bg = bg.clone();
+                let res = unblock(move || {
+                    bg.lock_arc_blocking().set_led_no(num, LedColor::Off)
+                }).await;
+
+                resp_res = if res.is_err() {
+                    AckResponse(Ok(()))
+                } else {
+                    AckResponse(Err(RequestError {}))
+                };
             },
             None => {
-                let _ = req_send
-                .send((
-                    Request::Bargraph(cmds::Bargraph::ClearAll),
-                    resp_send,
-                ))
-                .await;
+                let bg = bg.clone();
+                let res = unblock(move || {
+                    bg.lock_arc_blocking().clear_all()
+                }).await;
+
+                resp_res = if res.is_ok() {
+                    AckResponse(Ok(()))
+                } else {
+                    AckResponse(Err(RequestError {}))
+                };
             }
         }
 
-        let recv_res: Result<(), RequestError>;
-        if let Ok(raw_res) = resp_recv.recv().await {
-            recv_res = raw_res
-                .map(|r| *r.downcast::<()>().unwrap())
-                .map_err(|e| match e {
-                    cmds::Error::Client(_) => RequestError {},
-                    _ => unreachable!(),
-                });
-        } else {
-            return
-        }
-
         let _ = blink_send.send(BlinkInfo::LedClear).await;
-        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &AckResponse(recv_res), &mut buf) {
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp_res, &mut buf) {
             let _ = sock.send_to(used, addr).await;
         }
     }
@@ -259,16 +226,16 @@ pub(super) mod background {
         LedClear,
     }
 
-    pub async fn blink<'a>(
+    pub async fn blink<'a, I2C, E>(
         ex: Rc<LocalExecutor<'_>>,
-        req_send: AsyncSend,
+        bg: Arc<Mutex<bargraph::Bargraph<I2C>>>,
         // For now, dispatch to blink task from server without having a channel
         // to send a response.
         req_recv: Receiver<BlinkInfo>,
-    ) {
+    ) where I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static, E: Send + 'static {
         let mut state = BlinkState::Init;
         let (wait_done_send, wait_done_recv) = bounded(1);
-        let (driver_resp_send, driver_resp_recv) = bounded(1);
+        // let (driver_resp_send, driver_resp_recv) = bounded(1);
 
         loop {
             let curr_task: Task<()>;
@@ -277,49 +244,37 @@ pub(super) mod background {
                     curr_task = ex.spawn(future::pending());
                 }
                 BlinkState::Off => {
-                    let _ = req_send
-                        .send((
-                            Request::Bargraph(cmds::Bargraph::StopBlink),
-                            driver_resp_send.clone(),
-                        ))
-                        .await;
-                    let _ = driver_resp_recv.recv().await;
+                    let bg = bg.clone();
+                    unblock(move || {
+                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::ON);
+                    }).await;
                     curr_task = ex.spawn(future::pending());
                 }
                 BlinkState::Fast => {
-                    let _ = req_send
-                        .send((
-                            Request::Bargraph(cmds::Bargraph::FastBlink),
-                            driver_resp_send.clone(),
-                        ))
-                        .await;
-                    let _ = driver_resp_recv.recv().await;
+                    let bg = bg.clone();
+                    unblock(move || {
+                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::TWO_HZ);
+                    }).await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(60),
                         wait_done_send.clone(),
                     ));
                 }
                 BlinkState::Med => {
-                    let _ = req_send
-                        .send((
-                            Request::Bargraph(cmds::Bargraph::MediumBlink),
-                            driver_resp_send.clone(),
-                        ))
-                        .await;
-                    let _ = driver_resp_recv.recv().await;
+                    let bg = bg.clone();
+                    unblock(move || {
+                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::ONE_HZ);
+                    }).await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(300),
                         wait_done_send.clone(),
                     ));
                 }
                 BlinkState::Slow => {
-                    let _ = req_send
-                        .send((
-                            Request::Bargraph(cmds::Bargraph::SlowBlink),
-                            driver_resp_send.clone(),
-                        ))
-                        .await;
-                    let _ = driver_resp_recv.recv().await;
+                    let bg = bg.clone();
+                    unblock(move || {
+                        let _ = bg.lock_arc_blocking().set_display(bargraph::Display::HALF_HZ);
+                    }).await;
                     curr_task = ex.spawn(wait_then_send_done(
                         Duration::from_secs(900),
                         wait_done_send.clone(),
