@@ -9,13 +9,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use wb_notifier_driver::bargraph;
+use wb_notifier_driver::lcd;
 
-use wb_notifier_driver::{self};
+use wb_notifier_driver;
 use wb_notifier_proto::*;
 
 pub(super) mod handlers {
     use super::*;
     use background::BlinkInfo;
+    use embedded_hal::blocking::delay::{DelayMs, DelayUs};
 
     pub async fn set_led<'a, I2C, E>(
         _ex: Rc<LocalExecutor<'_>>,
@@ -140,7 +142,7 @@ pub(super) mod handlers {
                 let res =
                     unblock(move || bg.lock_arc_blocking().set_led_no(num, LedColor::Off)).await;
 
-                resp_res = if res.is_err() {
+                resp_res = if res.is_ok() {
                     AckResponse(Ok(()))
                 } else {
                     AckResponse(Err(RequestError {}))
@@ -159,6 +161,37 @@ pub(super) mod handlers {
         }
 
         let _ = blink_send.send(BlinkInfo::LedClear).await;
+        if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp_res, &mut buf) {
+            let _ = sock.send_to(used, addr).await;
+        }
+    }
+
+    pub async fn set_backlight<'a, I2C, E, D>(
+        _ex: Rc<LocalExecutor<'_>>,
+        seq_no: u32,
+        key: Key,
+        (sock, addr): (UdpSocket, SocketAddr),
+        lcd: Arc<Mutex<lcd::Lcd<I2C, D>>>,
+        backlight: SetBacklight,
+    ) where
+        I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+        E: Send + 'static,
+        D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+    {
+        let mut buf = vec![0u8; 1024];
+        // For now, we give up on any send/recv/downcast/deserialize errors and
+        // rely on client to time out.
+
+        let res = unblock(move || {
+            let mut lcd = lcd.lock_arc_blocking();
+            lcd.set_backlight(backlight)
+        }).await;
+        let resp_res = if res.is_ok() {
+            SetBacklightResponse(Ok(()))
+        } else {
+            SetBacklightResponse(Err(RequestError {}))
+        };
+
         if let Ok(used) = postcard_rpc::headered::to_slice_keyed(seq_no, key, &resp_res, &mut buf) {
             let _ = sock.send_to(used, addr).await;
         }

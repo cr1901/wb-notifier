@@ -31,6 +31,7 @@ mod client {
         Notify(NotifySubCommand),
         Ack(AckSubCommand),
         ConfigBargraph(ConfigBargraphSubCommand),
+        ConfigLcd(ConfigLcdSubCommand)
     }
 
     #[derive(FromArgs, PartialEq, Debug)]
@@ -64,6 +65,15 @@ mod client {
         #[argh(option, short = 'd', from_str_fn(dim_parse))]
         /// message number/LED to bind to clear
         pub level: Option<SetDimming>,
+    }
+
+    #[derive(FromArgs, PartialEq, Debug)]
+    #[argh(subcommand, name = "config-lcd")]
+    /// bargraph config
+    pub struct ConfigLcdSubCommand {
+        #[argh(option, short = 'b', from_str_fn(backlight_parse))]
+        /// message number/LED to bind to clear
+        pub back: Option<SetBacklight>,
     }
 
     fn sock_parse(addr: &str) -> Result<SocketAddr, String> {
@@ -112,6 +122,22 @@ mod client {
         Duration::try_from(parser.parse(timeout).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())
     }
+
+    fn backlight_parse(level: &str) -> Result<SetBacklight, String> {
+        match level {
+            "off" => Ok(SetBacklight::Off),
+            "on" => Ok(SetBacklight::On),
+            _ => {
+                let mut msg = String::new();
+                let _ = write!(
+                    msg,
+                    r#"expected "on", or "off", got {}"#,
+                    level
+                );
+                Err(msg)
+            }
+        }
+    }
 }
 
 #[cfg(feature = "client")]
@@ -148,6 +174,9 @@ fn main() -> Result<()> {
         }
         Cmd::ConfigBargraph(ConfigBargraphSubCommand { level }) => {
             client.set_dimming(level.unwrap_or(SetDimming::Hi), &mut buf)?;
+        },
+        Cmd::ConfigLcd(ConfigLcdSubCommand { back }) => {
+            client.set_backlight(back.unwrap_or(SetBacklight::On), &mut buf)?;
         }
     }
 

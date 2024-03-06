@@ -147,6 +147,19 @@ impl Client {
         }
     }
 
+    pub fn set_backlight<B>(&mut self, back: B, buf: &mut [u8]) -> Result<(), Error>
+    where
+        B: Into<SetBacklight>,
+    {
+        let resp: SetBacklightResponse =
+            self.raw::<SetBacklight, SetBacklightResponse, _, _, _>(HD44780_SET_BACKLIGHT_PATH, back.into(), buf)?;
+
+        match resp.0 {
+            Ok(()) => Ok(()),
+            Err(r) => Err(Error::RequestFailed(r)),
+        }
+    }
+
     pub fn raw<'de, PRQ, PRS, RQ, RS, S>(
         &mut self,
         endpoint: S,

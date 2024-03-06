@@ -10,6 +10,7 @@ async-channel = { version = "2.1.1", default-features = false }
 async-lock = { version = "3.3.0", default-features = false, features = ["std"] }
 embedded-hal = "0.2.7"
 # embedded-hal-compat = { git="https://github.com/Dirbaio/embedded-hal-compat", branch="eh1.0", version = "0.12.0"}
+hd44780-driver = { git = "https://github.com/cr1901/hd44780-driver ", version = "0.4.0", branch="cr1901" }
 ht16k33 = { git = "https://github.com/cr1901/ht16k33", branch="common-addrs", version = "0.5.0", features = [] }
 shared-bus = "0.3.1"
 wb-notifier-proto = { path = "../proto" }

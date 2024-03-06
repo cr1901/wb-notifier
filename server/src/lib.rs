@@ -3,12 +3,14 @@ use async_executor::LocalExecutor;
 use async_lock::Mutex;
 use async_net::{SocketAddr, UdpSocket};
 
+use embedded_hal::blocking::delay::{DelayMs, DelayUs};
 use embedded_hal::blocking::i2c::{Write, WriteRead};
-use linux_embedded_hal::I2cdev;
+use linux_embedded_hal::{Delay, I2cdev};
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
 use wb_notifier_driver::Sensors;
 use wb_notifier_driver::bargraph::{Bargraph, Dimming};
+use wb_notifier_driver::lcd::Lcd;
 
 use std::error;
 use std::fmt;
@@ -32,21 +34,22 @@ endpoint!(
 );
 endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/notify");
 endpoint!(AckEndpoint, Ack, AckResponse, "led/ack");
+endpoint!(SetBacklightEndpoint, SetBacklight, SetBacklightResponse, "lcd/backlight");
 
 pub struct Server {
     addr: SocketAddr,
     devices: Vec<Device>,
 }
 
-struct Context<'ex, 'b, I2C> {
+struct Context<'ex, 'b, I2C, D> where I2C: Write + WriteRead {
     ex: &'b Rc<LocalExecutor<'ex>>,
     sock: UdpSocket,
     addr: Option<SocketAddr>,
     blink_send: Option<Sender<tasks::background::BlinkInfo>>,
-    sensors: Sensors<'b, I2C>
+    sensors: Sensors<'b, I2C, D>
 }
 
-impl<'ex, 'b, I2C> Context<'ex, 'b, I2C> {
+impl<'ex, 'b, I2C, D> Context<'ex, 'b, I2C, D> where I2C: Write + WriteRead {
     fn new(ex: &'b Rc<LocalExecutor<'ex>>, sock: UdpSocket) -> Self {
         Self {
             ex,
@@ -141,8 +144,9 @@ impl Server {
         let mut buf = vec![0u8; 1024];
 
         let mut bg = None;
+        let mut lcd = None;
         let mut dispatch =
-            Dispatch::<Context<_>, Error, 16>::new(Context::new(&ex, socket.clone()));
+            Dispatch::<Context<_, _>, Error, 16>::new(Context::new(&ex, socket.clone()));
 
         let i2c = I2cdev::new("/dev/i2c-1").map_err(|e| Error::Io(e.into()))?;
         let bus: &'static _ = shared_bus::new_std!(I2cdev = i2c).unwrap();
@@ -157,7 +161,7 @@ impl Server {
                         let arc_bg = Arc::new(Mutex::new(Bargraph::new(bus.acquire_i2c(), d.addr)));
                         {
                             let mut bg = arc_bg.try_lock_arc().unwrap();
-                            
+
                             bg.initialize().map_err(|_| {
                                 Error::Init(InitError::Driver(Driver::Bargraph))
                             })?;
@@ -179,7 +183,24 @@ impl Server {
                         dispatch.context().blink_send = Some(blink_send);
                     }
                     Driver::Hd44780 => {
-                        unimplemented!()
+                        let arc_lcd;
+                        {
+                            let delay = Delay {};
+                            let lcd = Lcd::new(bus.acquire_i2c(), delay, d.addr).map_err(|_| {
+                                Error::Init(InitError::Driver(Driver::Hd44780))
+                            })?;
+
+                            arc_lcd = Arc::new(Mutex::new(lcd));
+                            {
+                                let mut lcd = arc_lcd.try_lock_arc().unwrap();
+
+                                lcd.initialize().map_err(|_| {
+                                    Error::Init(InitError::Driver(Driver::Hd44780))
+                                })?;
+                            }
+                        }
+
+                        lcd.replace(arc_lcd);
                     }
                 }
 
@@ -188,6 +209,7 @@ impl Server {
             .collect::<Result<Vec<()>, Error>>()?;
 
         dispatch.context().sensors.bargraph = bg.as_ref();
+        dispatch.context().sensors.lcd = lcd.as_ref();
 
         dispatch
             .add_handler::<EchoEndpoint>(echo_handler)
@@ -203,6 +225,9 @@ impl Server {
             .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
         dispatch
             .add_handler::<AckEndpoint>(ack_handler)
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
+        dispatch
+            .add_handler::<SetBacklightEndpoint>(set_backlight_handler)
             .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
 
         loop {
@@ -240,9 +265,9 @@ where
     }
 }
 
-fn set_led_handler<I2C, E>(
+fn set_led_handler<I2C, E, D>(
     hdr: &WireHeader,
-    ctx: &mut Context<'_, '_, I2C>,
+    ctx: &mut Context<'_, '_, I2C, D>,
     bytes: &[u8],
 ) -> Result<(), Error>
 where
@@ -261,9 +286,9 @@ where
     })
 }
 
-fn set_dimming_handler<I2C, E>(
+fn set_dimming_handler<I2C, E, D>(
     hdr: &WireHeader,
-    ctx: &mut Context<'_, '_, I2C>,
+    ctx: &mut Context<'_, '_, I2C, D>,
     bytes: &[u8],
 ) -> Result<(), Error>
 where
@@ -282,9 +307,9 @@ where
     })
 }
 
-fn notify_handler<I2C, E>(
+fn notify_handler<I2C, E, D>(
     hdr: &WireHeader,
-    ctx: &mut Context<'_, '_, I2C>,
+    ctx: &mut Context<'_, '_, I2C, D>,
     bytes: &[u8],
 ) -> Result<(), Error>
 where
@@ -304,9 +329,9 @@ where
     })
 }
 
-fn ack_handler<I2C, E>(
+fn ack_handler<I2C, E, D>(
     hdr: &WireHeader,
-    ctx: &mut Context<'_, '_, I2C>,
+    ctx: &mut Context<'_, '_, I2C, D>,
     bytes: &[u8],
 ) -> Result<(), Error>
 where
@@ -326,17 +351,43 @@ where
     })
 }
 
-fn echo_handler<I2C>(
+fn echo_handler<I2C, D, E>(
     hdr: &WireHeader,
-    ctx: &mut Context<'_, '_, I2C>,
+    ctx: &mut Context<'_, '_, I2C, D>,
     bytes: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+{
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::echo(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,
             (ctx.sock.clone(), ctx.addr.unwrap()),
+            msg,
+        )
+    })
+}
+
+fn set_backlight_handler<I2C, E, D>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'_, '_, I2C, D>,
+    bytes: &[u8],
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+    D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+{
+    deserialize_detach(ctx.ex, bytes, |msg| {
+        tasks::handlers::set_backlight(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap()),
+            ctx.sensors.lcd.unwrap().clone(),
             msg,
         )
     })
