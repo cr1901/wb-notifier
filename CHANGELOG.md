@@ -2,7 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.1] - 2024-02-04
+## [Unreleased]
+
+
+## [v0.1.1] - 2024-02-04
 
 - Update user scripts.
 
@@ -11,7 +14,7 @@ All notable changes to this project will be documented in this file.
 - Add proper error handling.
 
 
-## [0.1.0] - 2024-02-02
+## [v0.1.0] - 2024-02-02
 
 - Initial release with working LED client and server.
 
