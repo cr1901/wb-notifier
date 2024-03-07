@@ -35,6 +35,7 @@ endpoint!(
 endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/notify");
 endpoint!(AckEndpoint, Ack, AckResponse, "led/ack");
 endpoint!(SetBacklightEndpoint, SetBacklight, SetBacklightResponse, "lcd/backlight");
+endpoint!(SendMsgEndpoint, SendMsg, SendMsgResponse, "lcd/msg");
 
 pub struct Server {
     addr: SocketAddr,
@@ -229,6 +230,9 @@ impl Server {
         dispatch
             .add_handler::<SetBacklightEndpoint>(set_backlight_handler)
             .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
+        dispatch
+            .add_handler::<SendMsgEndpoint>(send_msg_handler)
+            .map_err(|e| Error::Init(InitError::Dispatch(e)))?;
 
         loop {
             let (n, addr) = socket.recv_from(&mut buf).await?;
@@ -383,6 +387,28 @@ where
 {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_backlight(
+            ctx.ex.clone(),
+            hdr.seq_no,
+            hdr.key,
+            (ctx.sock.clone(), ctx.addr.unwrap()),
+            ctx.sensors.lcd.unwrap().clone(),
+            msg,
+        )
+    })
+}
+
+fn send_msg_handler<I2C, E, D>(
+    hdr: &WireHeader,
+    ctx: &mut Context<'_, '_, I2C, D>,
+    bytes: &[u8],
+) -> Result<(), Error>
+where
+    I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
+    E: Send + 'static,
+    D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+{
+    deserialize_detach(ctx.ex, bytes, |msg| {
+        tasks::handlers::send_msg(
             ctx.ex.clone(),
             hdr.seq_no,
             hdr.key,

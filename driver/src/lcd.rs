@@ -92,7 +92,11 @@ where
         self.drv.set_cursor_pos(0, &mut self.delay).map_err(|_| Error::SetCursorPos)?;
         self.pos = 0;
 
-        for (_, c) in msg.chars().enumerate() {
+        for (i, c) in msg.chars().enumerate() {
+            if i % 20 == 0 && i != 0 {
+                self.drv.set_cursor_pos(i as u8, &mut self.delay).map_err(|_| Error::SetCursorPos)?;
+            }
+
             if c.is_ascii() {
                 self.drv.write_byte(c as u8, &mut self.delay).map_err(|_| Error::WriteStr)?;
             }

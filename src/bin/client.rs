@@ -159,7 +159,7 @@ fn main() -> Result<()> {
         Cmd::Notify(NotifySubCommand {
             num,
             status,
-            msg: _,
+            msg,
         }) => {
             client.notify(
                 Notify {
@@ -168,6 +168,10 @@ fn main() -> Result<()> {
                 },
                 &mut buf,
             )?;
+
+            if let Some(m) = msg {
+                client.send_msg(SendMsg(m), &mut buf)?;
+            }
         }
         Cmd::Ack(AckSubCommand { num }) => {
             client.ack(Ack { num }, &mut buf)?;

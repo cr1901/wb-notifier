@@ -27,13 +27,13 @@ impl From<Result<(), RequestError>> for SetBacklightResponse {
 }
 
 #[derive(Serialize, Deserialize, Schema)]
-pub struct SendMsg(String);
+pub struct SendMsg(pub String);
 
 #[derive(Serialize, Deserialize, Schema)]
-pub struct SetMsgResponse(Result<MsgStatus, RequestError>);
+pub struct SendMsgResponse(pub Result<MsgStatus, RequestError>);
 
 #[derive(Serialize, Deserialize, Schema)]
-enum MsgStatus {
+pub enum MsgStatus {
     Ok,
     Truncated
 }

@@ -160,6 +160,19 @@ impl Client {
         }
     }
 
+    pub fn send_msg<M>(&mut self, msg: M, buf: &mut [u8]) -> Result<(), Error>
+    where
+        M: Into<SendMsg>,
+    {
+        let resp: SendMsgResponse =
+            self.raw::<SendMsg, SendMsgResponse, _, _, _>(HD44780_SEND_MSG_PATH, msg.into(), buf)?;
+
+        match resp.0 {
+            Ok(_) => Ok(()),
+            Err(r) => Err(Error::RequestFailed(r)),
+        }
+    }
+
     pub fn raw<'de, PRQ, PRS, RQ, RS, S>(
         &mut self,
         endpoint: S,
