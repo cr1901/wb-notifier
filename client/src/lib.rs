@@ -151,8 +151,11 @@ impl Client {
     where
         B: Into<SetBacklight>,
     {
-        let resp: SetBacklightResponse =
-            self.raw::<SetBacklight, SetBacklightResponse, _, _, _>(HD44780_SET_BACKLIGHT_PATH, back.into(), buf)?;
+        let resp: SetBacklightResponse = self.raw::<SetBacklight, SetBacklightResponse, _, _, _>(
+            HD44780_SET_BACKLIGHT_PATH,
+            back.into(),
+            buf,
+        )?;
 
         match resp.0 {
             Ok(()) => Ok(()),

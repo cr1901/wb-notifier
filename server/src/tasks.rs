@@ -176,7 +176,7 @@ pub(super) mod handlers {
     ) where
         I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
         E: Send + 'static,
-        D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+        D: DelayMs<u8> + DelayUs<u16> + Send + 'static,
     {
         let mut buf = vec![0u8; 1024];
         // For now, we give up on any send/recv/downcast/deserialize errors and
@@ -200,11 +200,11 @@ pub(super) mod handlers {
         key: Key,
         (sock, addr): (UdpSocket, SocketAddr),
         lcd: Arc<Mutex<lcd::Lcd<I2C, D>>>,
-        msg: SendMsg
+        msg: SendMsg,
     ) where
         I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
         E: Send + 'static,
-        D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+        D: DelayMs<u8> + DelayUs<u16> + Send + 'static,
     {
         let mut buf = vec![0u8; 1024];
         // For now, we give up on any send/recv/downcast/deserialize errors and

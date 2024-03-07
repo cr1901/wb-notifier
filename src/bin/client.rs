@@ -31,7 +31,7 @@ mod client {
         Notify(NotifySubCommand),
         Ack(AckSubCommand),
         ConfigBargraph(ConfigBargraphSubCommand),
-        ConfigLcd(ConfigLcdSubCommand)
+        ConfigLcd(ConfigLcdSubCommand),
     }
 
     #[derive(FromArgs, PartialEq, Debug)]
@@ -129,11 +129,7 @@ mod client {
             "on" => Ok(SetBacklight::On),
             _ => {
                 let mut msg = String::new();
-                let _ = write!(
-                    msg,
-                    r#"expected "on", or "off", got {}"#,
-                    level
-                );
+                let _ = write!(msg, r#"expected "on", or "off", got {}"#, level);
                 Err(msg)
             }
         }
@@ -156,11 +152,7 @@ fn main() -> Result<()> {
     let mut buf = vec![0; 1024];
 
     match args.cmd {
-        Cmd::Notify(NotifySubCommand {
-            num,
-            status,
-            msg,
-        }) => {
+        Cmd::Notify(NotifySubCommand { num, status, msg }) => {
             client.notify(
                 Notify {
                     num: num.unwrap_or(0),
@@ -178,7 +170,7 @@ fn main() -> Result<()> {
         }
         Cmd::ConfigBargraph(ConfigBargraphSubCommand { level }) => {
             client.set_dimming(level.unwrap_or(SetDimming::Hi), &mut buf)?;
-        },
+        }
         Cmd::ConfigLcd(ConfigLcdSubCommand { back }) => {
             client.set_backlight(back.unwrap_or(SetBacklight::On), &mut buf)?;
         }

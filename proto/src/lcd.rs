@@ -35,5 +35,5 @@ pub struct SendMsgResponse(pub Result<MsgStatus, RequestError>);
 #[derive(Serialize, Deserialize, Schema)]
 pub enum MsgStatus {
     Ok,
-    Truncated
+    Truncated,
 }

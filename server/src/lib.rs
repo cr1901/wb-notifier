@@ -8,9 +8,9 @@ use embedded_hal::blocking::i2c::{Write, WriteRead};
 use linux_embedded_hal::{Delay, I2cdev};
 use postcard_rpc::{self, endpoint, Dispatch, Key, WireHeader};
 use serde::Deserialize;
-use wb_notifier_driver::Sensors;
 use wb_notifier_driver::bargraph::{Bargraph, Dimming};
 use wb_notifier_driver::lcd::Lcd;
+use wb_notifier_driver::Sensors;
 
 use std::error;
 use std::fmt;
@@ -34,7 +34,12 @@ endpoint!(
 );
 endpoint!(NotifyEndpoint, Notify, NotifyResponse, "led/notify");
 endpoint!(AckEndpoint, Ack, AckResponse, "led/ack");
-endpoint!(SetBacklightEndpoint, SetBacklight, SetBacklightResponse, "lcd/backlight");
+endpoint!(
+    SetBacklightEndpoint,
+    SetBacklight,
+    SetBacklightResponse,
+    "lcd/backlight"
+);
 endpoint!(SendMsgEndpoint, SendMsg, SendMsgResponse, "lcd/msg");
 
 pub struct Server {
@@ -42,15 +47,21 @@ pub struct Server {
     devices: Vec<Device>,
 }
 
-struct Context<'ex, 'b, I2C, D> where I2C: Write + WriteRead {
+struct Context<'ex, 'b, I2C, D>
+where
+    I2C: Write + WriteRead,
+{
     ex: &'b Rc<LocalExecutor<'ex>>,
     sock: UdpSocket,
     addr: Option<SocketAddr>,
     blink_send: Option<Sender<tasks::background::BlinkInfo>>,
-    sensors: Sensors<'b, I2C, D>
+    sensors: Sensors<'b, I2C, D>,
 }
 
-impl<'ex, 'b, I2C, D> Context<'ex, 'b, I2C, D> where I2C: Write + WriteRead {
+impl<'ex, 'b, I2C, D> Context<'ex, 'b, I2C, D>
+where
+    I2C: Write + WriteRead,
+{
     fn new(ex: &'b Rc<LocalExecutor<'ex>>, sock: UdpSocket) -> Self {
         Self {
             ex,
@@ -116,7 +127,7 @@ impl fmt::Display for InitError {
                 };
 
                 write!(f, "driver {drv} could not communicate with device")
-            },
+            }
             InitError::Dispatch(_) => write!(f, "dispatch table failed to initialize"),
         }
     }
@@ -163,13 +174,11 @@ impl Server {
                         {
                             let mut bg = arc_bg.try_lock_arc().unwrap();
 
-                            bg.initialize().map_err(|_| {
-                                Error::Init(InitError::Driver(Driver::Bargraph))
-                            })?;
+                            bg.initialize()
+                                .map_err(|_| Error::Init(InitError::Driver(Driver::Bargraph)))?;
 
-                            bg.set_dimming(Dimming::BRIGHTNESS_3_16).map_err(|_| {
-                                Error::Init(InitError::Driver(Driver::Bargraph))
-                            })?;
+                            bg.set_dimming(Dimming::BRIGHTNESS_3_16)
+                                .map_err(|_| Error::Init(InitError::Driver(Driver::Bargraph)))?;
                         }
 
                         let (blink_send, blink_recv) = bounded(1);
@@ -187,17 +196,15 @@ impl Server {
                         let arc_lcd;
                         {
                             let delay = Delay {};
-                            let lcd = Lcd::new(bus.acquire_i2c(), delay, d.addr).map_err(|_| {
-                                Error::Init(InitError::Driver(Driver::Hd44780))
-                            })?;
+                            let lcd = Lcd::new(bus.acquire_i2c(), delay, d.addr)
+                                .map_err(|_| Error::Init(InitError::Driver(Driver::Hd44780)))?;
 
                             arc_lcd = Arc::new(Mutex::new(lcd));
                             {
                                 let mut lcd = arc_lcd.try_lock_arc().unwrap();
 
-                                lcd.initialize().map_err(|_| {
-                                    Error::Init(InitError::Driver(Driver::Hd44780))
-                                })?;
+                                lcd.initialize()
+                                    .map_err(|_| Error::Init(InitError::Driver(Driver::Hd44780)))?;
                             }
                         }
 
@@ -383,7 +390,7 @@ fn set_backlight_handler<I2C, E, D>(
 where
     I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
     E: Send + 'static,
-    D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+    D: DelayMs<u8> + DelayUs<u16> + Send + 'static,
 {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::set_backlight(
@@ -405,7 +412,7 @@ fn send_msg_handler<I2C, E, D>(
 where
     I2C: Send + Write<Error = E> + WriteRead<Error = E> + 'static,
     E: Send + 'static,
-    D: DelayMs<u8> + DelayUs<u16> + Send + 'static
+    D: DelayMs<u8> + DelayUs<u16> + Send + 'static,
 {
     deserialize_detach(ctx.ex, bytes, |msg| {
         tasks::handlers::send_msg(
