@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 
+## [v0.2.0] - 2024-03-07
+
+- Add lcd endpoints to set/clear backlight and send LCD message.
+
+- Abandon the driver loop thread- use smol's blocking I/O thread pool.
+
+  - Executor is still single-threaded.
+
+- Add configurable timeout option to client UDP sockets.
+
+- Add size optimization flags to Cargo.toml.
+
+
 ## [v0.1.1] - 2024-02-04
 
 - Update user scripts.
