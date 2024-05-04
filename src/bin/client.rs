@@ -3,8 +3,10 @@ use eyre::Result;
 #[cfg(feature = "client")]
 mod client {
     use std::fmt::Write;
-    use std::net::{AddrParseError, SocketAddr};
+    pub use std::net::{AddrParseError, SocketAddr};
     pub use std::time::Duration;
+    pub use eyre::Context;
+    pub use std::env;
 
     use fundu::DurationParser;
     pub use wb_notifier_client::Client;
@@ -17,7 +19,7 @@ mod client {
     pub struct ClientArgs {
         /// address to connect to
         #[argh(positional, from_str_fn(sock_parse))]
-        pub addr: SocketAddr,
+        pub addr: Option<SocketAddr>,
         /// timeout for receive socket
         #[argh(option, short = 't', from_str_fn(duration_parse))]
         pub timeout: Option<Duration>,
@@ -69,7 +71,7 @@ mod client {
 
     #[derive(FromArgs, PartialEq, Debug)]
     #[argh(subcommand, name = "config-lcd")]
-    /// bargraph config
+    /// lcd config
     pub struct ConfigLcdSubCommand {
         #[argh(option, short = 'b', from_str_fn(backlight_parse))]
         /// message number/LED to bind to clear
@@ -143,11 +145,15 @@ use client::*;
 fn main() -> Result<()> {
     let args: ClientArgs = argh::from_env();
 
+    let addr = match args.addr {
+        Some(a) => a,
+        None => env::var("WBN_SERVER_ADDR")
+            .wrap_err("if an addr is not provided, environment variable WBN_SERVER_ADDR must be set")?
+            .parse()?,
+    };
+
     let mut client = Client::new();
-    client.connect(
-        args.addr,
-        args.timeout.or(Some(Duration::from_millis(1000))),
-    )?;
+    client.connect(addr, args.timeout.or(Some(Duration::from_millis(1000))))?;
 
     let mut buf = vec![0; 1024];
 
