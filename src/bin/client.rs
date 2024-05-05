@@ -24,8 +24,8 @@ mod client {
         #[argh(option, short = 't', from_str_fn(duration_parse))]
         pub timeout: Option<Duration>,
         /// max number of retries for send and receive
-        #[argh(option, short = 'r')]
-        pub retries: Option<u8>,
+        #[argh(option, short = 'r', default = "3")]
+        pub retries: u8,
         #[argh(subcommand)]
         pub cmd: Cmd,
     }
@@ -143,7 +143,7 @@ mod client {
     pub fn maybe_print_health<T>(health: ConnHealth<T>, id: &str) {
         if health.retries() > 0 {
             let r_suff = if health.retries() == 1 { "y" } else { "ies" };
-            println!("request {} took {} retr{}", id, health.retries(), r_suff);
+            println!("request \"{}\" took {} retr{}", id, health.retries(), r_suff);
         }
     }
 }
@@ -163,7 +163,7 @@ fn main() -> Result<()> {
     };
 
     let mut client = Client::new();
-    client.connect(addr, args.timeout.or(Some(Duration::from_millis(1000))), args.retries.unwrap_or(0))?;
+    client.connect(addr, args.timeout.or(Some(Duration::from_millis(1000))), args.retries)?;
 
     let mut buf = vec![0; 1024];
 
