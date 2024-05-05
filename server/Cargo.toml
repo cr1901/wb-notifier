@@ -14,8 +14,8 @@ async-net = "2.0.0"
 blocking = "1.5.1"
 embedded-hal = "0.2.7"
 futures-lite = { version = "2.2.0", default-features = false }
-linux-embedded-hal = { version = "0.3.2", default_features = false, features = ["gpio_cdev"] }
-postcard = { version = "1.0.8", default_features = false, features = [ "use-std" ] }
+linux-embedded-hal = { version = "0.3.2", default-features = false, features = ["gpio_cdev"] }
+postcard = { version = "1.0.8", default-features = false, features = [ "use-std" ] }
 postcard-rpc = { version = "0.3.1", default-features = false }
 serde = { version = "1.0.195", default-features = false, features = [ "std" ] }
 shared-bus = { version = "0.3.1", default-features = false, features = [ "std" ] }
