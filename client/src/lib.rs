@@ -11,8 +11,21 @@ use postcard_rpc::Key;
 use serde::{de, ser};
 use wb_notifier_proto::*;
 
+pub struct ConnHealth<T>(T, u8);
+
+impl<T> ConnHealth<T> {
+    pub fn payload(self) -> T {
+        self.0
+    }
+
+    pub fn retries(&self) -> u8 {
+        self.1
+    }
+}
+
 pub struct Client {
     sock: Option<UdpSocket>,
+    retries: u8,
 }
 
 #[derive(Debug)]
@@ -72,10 +85,18 @@ impl Default for Client {
 impl Client {
     #[must_use]
     pub fn new() -> Self {
-        Self { sock: None }
+        Self {
+            sock: None,
+            retries: 0,
+        }
     }
 
-    pub fn connect<S>(&mut self, addr: S, timeout: Option<Duration>) -> Result<(), Error>
+    pub fn connect<S>(
+        &mut self,
+        addr: S,
+        timeout: Option<Duration>,
+        retries: u8,
+    ) -> Result<(), Error>
     where
         S: ToSocketAddrs,
     {
@@ -84,96 +105,94 @@ impl Client {
         sock.connect(addr)?;
 
         self.sock = Some(sock);
+        self.retries = retries;
 
         Ok(())
     }
 
-    pub fn echo<S>(&mut self, msg: S, buf: &mut [u8]) -> Result<String, Error>
+    pub fn echo<S>(&mut self, msg: S, buf: &mut [u8]) -> Result<ConnHealth<String>, Error>
     where
         S: Into<Echo>,
     {
-        self.raw::<Echo, EchoResponse, _, _, _>(ECHO_PATH, msg.into(), buf)
+        let (resp, retries): (EchoResponse, _) =
+            self.raw::<Echo, EchoResponse, _, _, _>(ECHO_PATH, msg.into(), buf)?;
+        Ok(ConnHealth(resp.0, retries))
     }
 
-    pub fn set_led<LED>(&mut self, set_led: LED, buf: &mut [u8]) -> Result<(), Error>
+    pub fn set_led<LED>(&mut self, set_led: LED, buf: &mut [u8]) -> Result<ConnHealth<()>, Error>
     where
         LED: Into<SetLed>,
     {
-        let resp: SetLedResponse =
+        let (resp, retries): (SetLedResponse, _) =
             self.raw::<SetLed, SetLedResponse, _, _, _>(SET_LED_PATH, set_led.into(), buf)?;
 
-        match resp.0 {
-            Ok(()) => Ok(()),
-            Err(r) => Err(Error::RequestFailed(r)),
-        }
+        resp.0
+            .map(|_| ConnHealth((), retries))
+            .map_err(|r| Error::RequestFailed(r))
     }
 
-    pub fn notify<N>(&mut self, notify: N, buf: &mut [u8]) -> Result<(), Error>
+    pub fn notify<N>(&mut self, notify: N, buf: &mut [u8]) -> Result<ConnHealth<()>, Error>
     where
         N: Into<Notify>,
     {
-        let resp: NotifyResponse =
+        let (resp, retries): (NotifyResponse, _) =
             self.raw::<Notify, NotifyResponse, _, _, _>(NOTIFY_PATH, notify.into(), buf)?;
 
-        match resp.0 {
-            Ok(()) => Ok(()),
-            Err(r) => Err(Error::RequestFailed(r)),
-        }
+        resp.0
+            .map(|_| ConnHealth((), retries))
+            .map_err(|r| Error::RequestFailed(r))
     }
 
-    pub fn ack<A>(&mut self, ack: A, buf: &mut [u8]) -> Result<(), Error>
+    pub fn ack<A>(&mut self, ack: A, buf: &mut [u8]) -> Result<ConnHealth<()>, Error>
     where
         A: Into<Ack>,
     {
-        let resp: AckResponse =
+        let (resp, retries): (AckResponse, _) =
             self.raw::<Ack, AckResponse, _, _, _>(CLEAR_NOTIFY_PATH, ack.into(), buf)?;
 
-        match resp.0 {
-            Ok(()) => Ok(()),
-            Err(r) => Err(Error::RequestFailed(r)),
-        }
+        resp.0
+            .map(|_| ConnHealth((), retries))
+            .map_err(|r| Error::RequestFailed(r))
     }
 
-    pub fn set_dimming<PWM>(&mut self, pwm: PWM, buf: &mut [u8]) -> Result<(), Error>
+    pub fn set_dimming<PWM>(&mut self, pwm: PWM, buf: &mut [u8]) -> Result<ConnHealth<()>, Error>
     where
         PWM: Into<SetDimming>,
     {
-        let resp: SetDimmingResponse =
+        let (resp, retries): (SetDimmingResponse, _) =
             self.raw::<SetDimming, SetDimmingResponse, _, _, _>(SET_DIMMING_PATH, pwm.into(), buf)?;
 
-        match resp.0 {
-            Ok(()) => Ok(()),
-            Err(r) => Err(Error::RequestFailed(r)),
-        }
+        resp.0
+            .map(|_| ConnHealth((), retries))
+            .map_err(|r| Error::RequestFailed(r))
     }
 
-    pub fn set_backlight<B>(&mut self, back: B, buf: &mut [u8]) -> Result<(), Error>
+    pub fn set_backlight<B>(&mut self, back: B, buf: &mut [u8]) -> Result<ConnHealth<()>, Error>
     where
         B: Into<SetBacklight>,
     {
-        let resp: SetBacklightResponse = self.raw::<SetBacklight, SetBacklightResponse, _, _, _>(
-            HD44780_SET_BACKLIGHT_PATH,
-            back.into(),
-            buf,
-        )?;
+        let (resp, retries): (SetBacklightResponse, _) = self
+            .raw::<SetBacklight, SetBacklightResponse, _, _, _>(
+                HD44780_SET_BACKLIGHT_PATH,
+                back.into(),
+                buf,
+            )?;
 
-        match resp.0 {
-            Ok(()) => Ok(()),
-            Err(r) => Err(Error::RequestFailed(r)),
-        }
+        resp.0
+            .map(|_| ConnHealth((), retries))
+            .map_err(|r| Error::RequestFailed(r))
     }
 
-    pub fn send_msg<M>(&mut self, msg: M, buf: &mut [u8]) -> Result<(), Error>
+    pub fn send_msg<M>(&mut self, msg: M, buf: &mut [u8]) -> Result<ConnHealth<()>, Error>
     where
         M: Into<SendMsg>,
     {
-        let resp: SendMsgResponse =
+        let (resp, retries): (SendMsgResponse, _) =
             self.raw::<SendMsg, SendMsgResponse, _, _, _>(HD44780_SEND_MSG_PATH, msg.into(), buf)?;
 
-        match resp.0 {
-            Ok(_) => Ok(()),
-            Err(r) => Err(Error::RequestFailed(r)),
-        }
+        resp.0
+            .map(|_| ConnHealth((), retries))
+            .map_err(|r| Error::RequestFailed(r))
     }
 
     pub fn raw<'de, PRQ, PRS, RQ, RS, S>(
@@ -181,7 +200,7 @@ impl Client {
         endpoint: S,
         payload: RQ,
         buf: &'de mut [u8],
-    ) -> Result<RS, Error>
+    ) -> Result<(RS, u8), Error>
     where
         S: AsRef<str>,
         RQ: Into<PRQ>,
@@ -190,22 +209,34 @@ impl Client {
     {
         let key = Key::for_path::<PRQ>(endpoint.as_ref());
 
-        let req = to_slice_keyed(0, key, &payload.into(), buf)?;
-        self.sock.as_mut().ok_or(Error::NotConnected)?.send(req)?;
+        let mut retry = 0;
+        let p_payload = payload.into();
+        while retry <= self.retries {
+            let req = to_slice_keyed(0, key, &p_payload, buf)?;
+            self.sock.as_mut().ok_or(Error::NotConnected)?.send(req)?;
 
-        self.sock
-            .as_mut()
-            .ok_or(Error::NotConnected)?
-            .recv(buf)
-            .map_err(|e| match e.kind() {
-                io::ErrorKind::WouldBlock => Error::NoResponse((0, key)),
-                _ => Error::Io(e),
-            })?;
+            let resp = self.sock.as_mut().ok_or(Error::NotConnected)?.recv(buf);
+
+            if resp.is_ok() {
+                break;
+            }
+
+            match resp.as_ref().unwrap_err().kind() {
+                io::ErrorKind::WouldBlock if retry < self.retries => {
+                    retry += 1;
+                    continue;
+                }
+                io::ErrorKind::WouldBlock if retry >= self.retries => {
+                    return Err(Error::NoResponse((0, key)))
+                }
+                _ => return Err(Error::Io(resp.unwrap_err())),
+            }
+        }
 
         let (hdr, rest) = extract_header_from_bytes(buf)?;
         if hdr.seq_no == 0 && hdr.key == key {
             let payload = from_bytes::<PRS>(rest)?;
-            Ok(payload.into())
+            Ok((payload.into(), retry))
         } else {
             Err(Error::BadResponse((hdr.seq_no, hdr.key)))
         }

@@ -9,7 +9,7 @@ mod client {
     pub use std::env;
 
     use fundu::DurationParser;
-    pub use wb_notifier_client::Client;
+    pub use wb_notifier_client::{Client, ConnHealth};
     pub use wb_notifier_proto::*;
 
     pub use argh::{self, FromArgs};
@@ -23,6 +23,9 @@ mod client {
         /// timeout for receive socket
         #[argh(option, short = 't', from_str_fn(duration_parse))]
         pub timeout: Option<Duration>,
+        /// max number of retries for send and receive
+        #[argh(option, short = 'r')]
+        pub retries: Option<u8>,
         #[argh(subcommand)]
         pub cmd: Cmd,
     }
@@ -136,6 +139,13 @@ mod client {
             }
         }
     }
+
+    pub fn maybe_print_health<T>(health: ConnHealth<T>, id: &str) {
+        if health.retries() > 0 {
+            let r_suff = if health.retries() == 1 { "y" } else { "ies" };
+            println!("request {} took {} retr{}", id, health.retries(), r_suff);
+        }
+    }
 }
 
 #[cfg(feature = "client")]
@@ -153,32 +163,33 @@ fn main() -> Result<()> {
     };
 
     let mut client = Client::new();
-    client.connect(addr, args.timeout.or(Some(Duration::from_millis(1000))))?;
+    client.connect(addr, args.timeout.or(Some(Duration::from_millis(1000))), args.retries.unwrap_or(0))?;
 
     let mut buf = vec![0; 1024];
 
     match args.cmd {
         Cmd::Notify(NotifySubCommand { num, status, msg }) => {
-            client.notify(
+            let r = client.notify(
                 Notify {
                     num: num.unwrap_or(0),
                     status: status.unwrap_or(Status::Ok),
                 },
                 &mut buf,
             )?;
+            maybe_print_health(r, "notify (led)");
 
             if let Some(m) = msg {
-                client.send_msg(SendMsg(m), &mut buf)?;
+                maybe_print_health(client.send_msg(SendMsg(m), &mut buf)?, "notify (msg)");
             }
         }
         Cmd::Ack(AckSubCommand { num }) => {
-            client.ack(Ack { num }, &mut buf)?;
+            maybe_print_health(client.ack(Ack { num }, &mut buf)?, "ack");
         }
         Cmd::ConfigBargraph(ConfigBargraphSubCommand { level }) => {
-            client.set_dimming(level.unwrap_or(SetDimming::Hi), &mut buf)?;
+            maybe_print_health(client.set_dimming(level.unwrap_or(SetDimming::Hi), &mut buf)?, "dimming");
         }
         Cmd::ConfigLcd(ConfigLcdSubCommand { back }) => {
-            client.set_backlight(back.unwrap_or(SetBacklight::On), &mut buf)?;
+            maybe_print_health(client.set_backlight(back.unwrap_or(SetBacklight::On), &mut buf)?, "backlight");
         }
     }
 
