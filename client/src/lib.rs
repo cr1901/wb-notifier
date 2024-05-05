@@ -2,7 +2,7 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::net::{ToSocketAddrs, UdpSocket};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use postcard::experimental::schema::Schema;
 use postcard::{self, from_bytes};
@@ -26,6 +26,7 @@ impl<T> ConnHealth<T> {
 pub struct Client {
     sock: Option<UdpSocket>,
     retries: u8,
+    seq_no: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -88,6 +89,7 @@ impl Client {
         Self {
             sock: None,
             retries: 0,
+            seq_no: None,
         }
     }
 
@@ -106,6 +108,19 @@ impl Client {
 
         self.sock = Some(sock);
         self.retries = retries;
+        // Use millisecond key so that we wrap every ~50 days. This is more
+        // than enough to practically ensure uniqueness for a transaction to a
+        // given endpoint Key and IP:PORT combo. TODO: The idea is to store the
+        // last successful seq_no on the server for a given Key/IP:PORT, so
+        // that a client can query an error endpoint. This error endpoint will
+        // tell whether a response got dropped or never made it to the server
+        // at all.
+        self.seq_no = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u32,
+        );
 
         Ok(())
     }
@@ -208,11 +223,12 @@ impl Client {
         PRS: Schema + de::Deserialize<'de> + Into<RS>,
     {
         let key = Key::for_path::<PRQ>(endpoint.as_ref());
+        let seq_no = self.seq_no.ok_or(Error::NotConnected)?;
 
         let mut retry = 0;
         let p_payload = payload.into();
         while retry <= self.retries {
-            let req = to_slice_keyed(0, key, &p_payload, buf)?;
+            let req = to_slice_keyed(seq_no, key, &p_payload, buf)?;
             self.sock.as_mut().ok_or(Error::NotConnected)?.send(req)?;
 
             let resp = self.sock.as_mut().ok_or(Error::NotConnected)?.recv(buf);
@@ -234,7 +250,7 @@ impl Client {
         }
 
         let (hdr, rest) = extract_header_from_bytes(buf)?;
-        if hdr.seq_no == 0 && hdr.key == key {
+        if hdr.seq_no == seq_no && hdr.key == key {
             let payload = from_bytes::<PRS>(rest)?;
             Ok((payload.into(), retry))
         } else {
