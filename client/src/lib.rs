@@ -222,11 +222,11 @@ impl Client {
             }
 
             match resp.as_ref().unwrap_err().kind() {
-                io::ErrorKind::WouldBlock if retry < self.retries => {
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut if retry < self.retries => {
                     retry += 1;
                     continue;
                 }
-                io::ErrorKind::WouldBlock if retry >= self.retries => {
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut if retry >= self.retries => {
                     return Err(Error::NoResponse((0, key)))
                 }
                 _ => return Err(Error::Io(resp.unwrap_err())),
